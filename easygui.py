@@ -896,7 +896,7 @@ def __choicebox(msg
 
     # make sure all choices are strings
     for index in range(len(choices)):
-        choices[index] = unicode(choices[index])
+        choices[index] = str(choices[index])
 
     if buttons:
         if type(buttons) == type("abc"): # user sent a string
@@ -992,12 +992,12 @@ def __choicebox(msg
     # put the choices into the choiceboxWidget
     #---------------------------------------------------
     for index in range(len(choices)):
-        choices[index] == unicode(choices[index])
+        choices[index] = str(choices[index])
 
     if runningPython3:
         choices.sort(key=str.lower)
     else:
-        choices.sort( lambda x,y: cmp(x.lower(),    y.lower())) # case-insensitive sort
+        choices.sort(key=lambda x: x.lower()) # case-insensitive sort
 
     lastInserted = None
     choiceboxChoices = []
@@ -1399,8 +1399,8 @@ def getFileDialogTitle(msg
     , title
     ):
     if msg and title: return "%s - %s" % (title,msg)
-    if msg and not title: return unicode(msg)
-    if title and not msg: return unicode(title)
+    if msg and not title: return str(msg)
+    if title and not msg: return str(title)
     return None # no message and no title
 
 #-------------------------------------------------------------------
@@ -1470,7 +1470,7 @@ def fileopenbox(msg=None
     , default="*"
     , filetypes=None
     ):
-    """
+    r"""
     A dialog to get a file name.
 
     About the "default" argument

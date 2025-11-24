@@ -1,38 +1,36 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
+import time
 '''
 Módulo de interface gráfica
 
 Copyright (C) 2010  Ygor Mutti
 Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 '''
-
 import time
 import threading
-import Tkinter as tk
+try:
+    import tkinter as tk
+except ImportError:
+    import Tkinter as tk
 
 from utils import formatah, plataforma, WINDOWS
 
-
 ICON = 'icons/d10r.ico' if plataforma() == WINDOWS else '@icons/d10r.xbm'
-
 
 # FIXME: Como easygui utiliza ICON e gui utiliza easygui é preciso importar
 # depois da definição de ICON
 import easygui as eg
 
-
 TITLE = 'd10r'
-
 
 class FimAlcancado(Exception):
     pass
 
-
 class Cronometro(threading.Thread):
     '''Cronômetro assíncrono com threads.'''
     def __init__(self, fim=None, h=False):
-        super(Cronometro, self).__init__()
+        super().__init__()
         if fim and h:
             self.fim = fim * 3600
         else:
@@ -43,7 +41,7 @@ class Cronometro(threading.Thread):
 
     def run(self):
         while True:
-            if self.fim != None and self.decorrido >= self.fim:
+            if self.fim is not None and self.decorrido >= self.fim:
                 self._decorrido = self.fim
                 self.parar()
             if self._parado:
@@ -54,10 +52,7 @@ class Cronometro(threading.Thread):
 
     def pausar(self):
         '''Pausa o cronômetro ou continua a contar, se estiver pausado.'''
-        if self._pausado:
-            self._pausado = False
-        else:
-            self._pausado = True
+        self._pausado = not self._pausado
 
     def parar(self):
         '''Encerra a contagem e finaliza a thread.'''
@@ -70,6 +65,12 @@ class Cronometro(threading.Thread):
 
     @property
     def decorridoh(self):
+        '''Mesmo que decorrido, porém retorna o valor em horas.'''
+        return self._decorrido / 3600.0
+
+    @property
+    def isparado(self):
+        return self._parado
         '''Mesmo que decorrido, porém retorna o valor em horas.'''
         return self._decorrido / 3600.0
 

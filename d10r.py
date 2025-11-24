@@ -171,7 +171,7 @@ def main():
         try:
             toth, inicio, timestamp = data.parse_config()
             break
-        except data.ArquivoError, e:
+        except data.ArquivoError as e:
             menu_cfg(str(e))
 
     while True:
@@ -192,12 +192,12 @@ def main():
                     debito = debitar(atividade, False)
         except gui.FimAlcancado:
             debito = atividade.saldo
-            gui.notificar(u'Você acabou de cumprir as horas da atividade:\n' +
+            gui.notificar('Você acabou de cumprir as horas da atividade:\n' +
                       atividade.nome)
-        except AttributeError, e: # usuário clicou em Sair, ou não... =/
+        except AttributeError as e: # usuário clicou em Sair, ou não... =/
             break
         finally:
-            if debito and gui.perguntar(u'Confirma %s horas gastas com %s?' %
+            if debito and gui.perguntar('Confirma %s horas gastas com %s?' %
                          (formatah(debito), atividade.nome)):
                 atividade.debitarh(debito)
             data.salvar_config(toth, inicio, timestamp)
