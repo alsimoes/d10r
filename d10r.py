@@ -20,6 +20,8 @@ __version__ = '0.1'
 import shutil
 import datetime
 
+from PySide6.QtWidgets import QApplication
+
 import gui
 import data
 from utils import formatah
@@ -203,5 +205,7 @@ def main():
             data.salvar_config(toth, inicio, timestamp)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    import sys
+    app = QApplication(sys.argv)
     main()

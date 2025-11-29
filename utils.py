@@ -8,7 +8,8 @@ Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 '''
 
 import sys
-
+import threading
+import time
 
 WINDOWS = 'win'
 LINUX = 'linux'
@@ -62,9 +63,56 @@ def dias_x_entre(dia, antes, depois):
     '''dias_x_entre(dia, antes, depois) -> int
 
     Determina quantas vezes ocorre um dia da semana entre duas datas.'''
-    delta = depois - antes
-    div, mod = divmod(delta.days, 7)
+    # Adiciona 1 para incluir a data final no cálculo
+    total_dias = (depois - antes).days + 1
+    div, mod = divmod(total_dias, 7)
     n = div
-    if (mod >= dias_ate_prox_dia(dia, antes.isoweekday())) and (mod != 0):
+    # Adiciona 1 se o dia da semana ocorre nos dias restantes
+    if mod > 0 and antes.isoweekday() <= dia <= antes.isoweekday() + mod -1:
         n += 1
     return n
+
+
+class Cronometro(threading.Thread):
+    '''Cronômetro assíncrono com threads.'''
+    def __init__(self, fim=None, h=False):
+        super().__init__()
+        # Garante que fim seja numérico
+        if isinstance(fim, (int, float)) and h:
+            self.fim = fim * 3600
+        elif isinstance(fim, (int, float)):
+            self.fim = fim
+        else:
+            try:
+                self.fim = float(fim)
+            except Exception:
+                self.fim = 0
+        self._decorrido = 0
+        self._pausado = False
+        self._parado = False
+    def run(self):
+        while True:
+            if self.fim is not None and self.decorrido >= self.fim:
+                self._decorrido = self.fim
+                self.parar()
+            if self._parado:
+                break
+            time.sleep(1)
+            if not self._pausado:
+                self._decorrido += 1
+    def pausar(self):
+        self._pausado = not self._pausado
+    def parar(self):
+        self._parado = True
+    @property
+    def decorrido(self):
+        return self._decorrido
+    @property
+    def decorridoh(self):
+        return self._decorrido / 3600.0
+    @property
+    def isparado(self):
+        return self._parado
+
+
+ICON = 'icons/d10r.ico' if plataforma() == WINDOWS else '@icons/d10r.xbm'
