@@ -74,26 +74,26 @@ def dias_x_entre(dia, antes, depois):
 
 
 class Cronometro(threading.Thread):
-    '''Cronômetro assíncrono com threads.'''
+    '''Cronômetro assíncrono com threads.
+
+    fim=None cria um cronômetro sem limite, que só para com parar(). Se h=True,
+    fim é interpretado em horas; caso contrário, em segundos.'''
     def __init__(self, fim=None, h=False):
-        super().__init__()
-        # Garante que fim seja numérico
-        if isinstance(fim, (int, float)) and h:
-            self.fim = fim * 3600
-        elif isinstance(fim, (int, float)):
-            self.fim = fim
+        # daemon: uma contagem esquecida não impede o programa de encerrar
+        super().__init__(daemon=True)
+        if fim is None:
+            self.fim = None
         else:
-            try:
-                self.fim = float(fim)
-            except Exception:
-                self.fim = 0
+            self.fim = float(fim) * 3600 if h else float(fim)
         self._decorrido = 0
         self._pausado = False
         self._parado = False
+        self._fim_alcancado = False
     def run(self):
         while True:
             if self.fim is not None and self.decorrido >= self.fim:
                 self._decorrido = self.fim
+                self._fim_alcancado = True
                 self.parar()
             if self._parado:
                 break
@@ -113,6 +113,9 @@ class Cronometro(threading.Thread):
     @property
     def isparado(self):
         return self._parado
-
+    @property
+    def fim_alcancado(self):
+        '''True se a contagem parou por ter atingido fim.'''
+        return self._fim_alcancado
 
 ICON = 'icons/d10r.ico' if plataforma() == WINDOWS else '@icons/d10r.xbm'
