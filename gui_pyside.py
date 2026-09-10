@@ -39,30 +39,31 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
 class CronometroDialogQt(QDialog):
+    '''Janela do cronômetro. Com parar=True, a contagem termina sozinha ao
+    atingir o saldo da atividade; com parar=False, conta sem limite.'''
     def __init__(self, atividade, parar=True):
         super().__init__()
         self.decorrido_final = 0
         self.atividade = atividade
         self.setWindowTitle(f'd10r - Atividade: {atividade.nome}')
         self.setModal(True)
+        saldo_num = parse_time_str_to_hours(getattr(atividade, 'saldo', 0))
         layout = QVBoxLayout()
         self.label = QLabel('Decorrido/Saldo:')
         layout.addWidget(self.label)
         self.tempoDecorridoLbl = QLabel('00:00:00')
         layout.addWidget(self.tempoDecorridoLbl)
-        self.tempoSaldoLbl = QLabel(f'/ {getattr(atividade, "saldo", "00:00:00")}')
+        self.tempoSaldoLbl = QLabel('/ ' + formatah(saldo_num))
         layout.addWidget(self.tempoSaldoLbl)
         self.pausarBtn = QCheckBox('Pausar')
         layout.addWidget(self.pausarBtn)
         self.pararBtn = QPushButton('Finalizar')
         layout.addWidget(self.pararBtn)
         self.setLayout(layout)
-        # Integração com cronômetro real
-        saldo_str = getattr(self.atividade, 'saldo', '0')
-        saldo_num = parse_time_str_to_hours(saldo_str)
-        print(f'[DEBUG] Saldo original: {saldo_str}, Saldo em horas: {saldo_num}')
-
-        self.cronometro = Cronometro(saldo_num, True)
+        if parar:
+            self.cronometro = Cronometro(saldo_num, True)
+        else:
+            self.cronometro = Cronometro(None)
         self.cronometro.start()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh)
@@ -70,22 +71,28 @@ class CronometroDialogQt(QDialog):
         self.pararBtn.clicked.connect(self.fechar)
         self.pausarBtn.stateChanged.connect(self.pausarCb)
     def _refresh(self):
-        decorrido_segundos = self.cronometro.decorrido if hasattr(self.cronometro, 'decorrido') else 0
-        # A função formatah espera o tempo em horas, então convertemos
-        decorrido_horas = decorrido_segundos / 3600.0
-        self.tempoDecorridoLbl.setText(formatah(decorrido_horas, segundos=True, sinal=False))
+        self.tempoDecorridoLbl.setText(
+            formatah(self.cronometro.decorridoh, segundos=True, sinal=False))
         if self.cronometro.isparado:
             self.fechar()
     def pausarCb(self):
         self.cronometro.pausar()
     def fechar(self):
+        self.accept()
+    def done(self, resultado):
+        # accept() e reject() (Esc ou botão "X") passam por aqui: garante que a
+        # thread pare e o tempo decorrido seja registrado em qualquer caso.
         self.timer.stop()
         self.cronometro.parar()
         self.decorrido_final = self.cronometro.decorridoh
-        self.accept()
+        super().done(resultado)
 
     def get_decorrido(self):
         return self.decorrido_final
+
+    @property
+    def fim_alcancado(self):
+        return self.cronometro.fim_alcancado
 
 class HoraSpinDialogQt(QDialog):
     def __init__(self, msg):

@@ -185,6 +185,8 @@ def main():
         debito = 0
         try:
             atividade = escolher_ativ()
+            if atividade is None: # usuário cancelou: encerra o programa
+                break
 
             if atividade.saldo > 0:
                 debito = debitar(atividade)
@@ -196,8 +198,6 @@ def main():
             debito = atividade.saldo
             gui.notificar('Você acabou de cumprir as horas da atividade:\n' +
                       atividade.nome)
-        except AttributeError as e: # usuário clicou em Sair, ou não... =/
-            break
         finally:
             if debito and gui.perguntar('Confirma %s horas gastas com %s?' %
                          (formatah(debito), atividade.nome)):

@@ -1,92 +1,35 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
-import time
-import easygui as eg
-from utils import ICON
-from gui_pyside import CronometroDialogQt, HoraSpinDialogQt, PrioridadeDialogQt
 '''
 Módulo de interface gráfica
+
+Os diálogos são implementados com PySide6 em gui_pyside.py; este módulo expõe
+funções simples usadas pelo d10r.py.
 
 Copyright (C) 2010  Ygor Mutti
 Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 '''
 
-# AVISO: Este módulo foi migrado para PySide6. Todas as funções e classes Tkinter foram removidas.
-# Use gui_pyside.py para interface gráfica.
+import easygui as eg
+from gui_pyside import CronometroDialogQt, HoraSpinDialogQt, PrioridadeDialogQt
 
-# Mantém apenas utilitários e lógica não gráfica
-import time
-import threading
-from utils import formatah, plataforma, WINDOWS
-
-ICON = 'icons/d10r.ico' if plataforma() == WINDOWS else '@icons/d10r.xbm'
 TITLE = 'd10r'
+
 
 class FimAlcancado(Exception):
     pass
 
-# Removida a classe Cronometro (agora em utils.py)
-
-class CronometroDialogQt:
-    '''Cronômetro assíncrono com threads.'''
-    def __init__(self, atividade, h=False):
-        super().__init__()
-        if atividade and h:
-            self.fim = atividade.saldo * 3600
-        else:
-            self.fim = atividade.saldo if atividade else None
-        self._decorrido = 0
-        self._pausado = False
-        self._parado = False
-
-    def run(self):
-        while True:
-            if self.fim is not None and self.decorrido >= self.fim:
-                self._decorrido = self.fim
-                self.parar()
-            if self._parado:
-                break
-            time.sleep(1)
-            if not self._pausado:
-                self._decorrido += 1
-
-    def pausar(self):
-        '''Pausa o cronômetro ou continua a contar, se estiver pausado.'''
-        self._pausado = not self._pausado
-
-    def parar(self):
-        '''Encerra a contagem e finaliza a thread.'''
-        self._parado = True
-
-    @property
-    def decorrido(self):
-        '''Tempo em segundos decorrido desde o início da contagem.'''
-        return self._decorrido
-
-    @property
-    def decorridoh(self):
-        '''Mesmo que decorrido, porém retorna o valor em horas.'''
-        return self._decorrido / 3600.0
-
-    @property
-    def isparado(self):
-        return self._parado
-        '''Mesmo que decorrido, porém retorna o valor em horas.'''
-        return self._decorrido / 3600.0
-
-    @property
-    def isparado(self):
-        return self._parado
-
 
 def cronometro_dialog(atividade, parar=True):
-    '''cronometroDialog(atividade) -> float
+    '''cronometro_dialog(atividade, parar=True) -> float
 
     Fábrica de janelas de cronômetro. Retorna o tempo decorrido em horas desde a
-    chamada da função. parar determina se o cronômetro deve parar quanto o tempo
-    decorrido for igual ao saldo da atividade.'''
+    chamada da função. parar determina se o cronômetro deve parar quando o tempo
+    decorrido for igual ao saldo da atividade; nesse caso, levanta FimAlcancado.'''
     dlg = CronometroDialogQt(atividade, parar)
     dlg.exec()
+    if parar and dlg.fim_alcancado:
+        raise FimAlcancado
     return dlg.get_decorrido()
 
 

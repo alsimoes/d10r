@@ -26,3 +26,17 @@ def test_dias_x_entre():
     # Ex: Quantas sextas-feiras (5) no mesmo período
     # Dias 5, 12 são sextas-feiras
     assert dias_x_entre(5, d_inicio, d_fim) == 2
+
+
+def test_cronometro_sem_fim():
+    from utils import Cronometro
+    assert Cronometro(None).fim is None
+    assert Cronometro(None, True).fim is None
+
+
+def test_cronometro_marca_fim_alcancado():
+    from utils import Cronometro
+    c = Cronometro(0, True)
+    c.run()  # síncrono: o fim já foi atingido na primeira verificação
+    assert c.isparado
+    assert c.fim_alcancado
