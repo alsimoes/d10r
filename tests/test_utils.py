@@ -40,3 +40,27 @@ def test_cronometro_marca_fim_alcancado():
     c.run()  # síncrono: o fim já foi atingido na primeira verificação
     assert c.isparado
     assert c.fim_alcancado
+
+
+def _contar_ingenuo(dia, antes, depois):
+    total = (depois - antes).days
+    return sum(1 for k in range(total + 1)
+               if (antes + datetime.timedelta(k)).isoweekday() == dia)
+
+
+def test_dias_x_entre_virada_de_semana():
+    # Regressão: de sábado (10/01/2026) a segunda (12/01/2026) há 1 segunda-feira
+    sabado = datetime.date(2026, 1, 10)
+    segunda = datetime.date(2026, 1, 12)
+    assert dias_x_entre(1, sabado, segunda) == 1
+
+
+def test_dias_x_entre_confere_com_contagem_ingenua():
+    base = datetime.date(2026, 1, 5)
+    for desloc in range(7):
+        antes = base + datetime.timedelta(desloc)
+        for dias in range(0, 30):
+            depois = antes + datetime.timedelta(dias)
+            for dia in range(1, 8):
+                assert dias_x_entre(dia, antes, depois) == \
+                    _contar_ingenuo(dia, antes, depois), (dia, antes, depois)

@@ -62,13 +62,15 @@ def dias_ate_prox_dia(dia, x):
 def dias_x_entre(dia, antes, depois):
     '''dias_x_entre(dia, antes, depois) -> int
 
-    Determina quantas vezes ocorre um dia da semana entre duas datas.'''
-    # Adiciona 1 para incluir a data final no cálculo
+    Determina quantas vezes um dia da semana (formato ISO) ocorre entre duas
+    datas, incluindo as duas extremidades.'''
     total_dias = (depois - antes).days + 1
-    div, mod = divmod(total_dias, 7)
-    n = div
-    # Adiciona 1 se o dia da semana ocorre nos dias restantes
-    if mod > 0 and antes.isoweekday() <= dia <= antes.isoweekday() + mod -1:
+    if total_dias <= 0:
+        return 0
+    n, resto = divmod(total_dias, 7)
+    # Os dias restantes cobrem os deslocamentos 0..resto-1 a partir de 'antes',
+    # inclusive quando atravessam a virada da semana (ex.: sábado -> segunda).
+    if resto and dias_ate_prox_dia(dia, antes.isoweekday()) < resto:
         n += 1
     return n
 

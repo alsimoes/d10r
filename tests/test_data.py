@@ -67,3 +67,37 @@ def test_creditar_tudo():
 
     assert a1.saldo == 5.0 # 50% de 10
     assert a2.saldo == 7.0 # 2 (saldo inicial) + 5
+
+
+@pytest.mark.parametrize('timestamp, hoje, esperado', [
+    # último crédito numa segunda, 14 dias depois: 2 semanas (antes creditava 1)
+    (datetime.date(2024, 1, 1), datetime.date(2024, 1, 15), 2),
+    # último crédito numa segunda, 7 dias depois: 1 semana (antes creditava 0)
+    (datetime.date(2024, 1, 1), datetime.date(2024, 1, 8), 1),
+    # último crédito num sábado, segunda seguinte: 1 semana (antes creditava 0)
+    (datetime.date(2024, 1, 6), datetime.date(2024, 1, 8), 1),
+    # mesma semana, antes da próxima segunda: nada a creditar
+    (datetime.date(2024, 1, 2), datetime.date(2024, 1, 7), 0),
+])
+def test_creditar_tudo_semanas(timestamp, hoje, esperado):
+    Atividade(nome='A1', pts=0.5, saldo=0)
+    creditou = creditar_tudo(toth=10, inicio=1, timestamp=timestamp, hoje=hoje)
+    assert creditou is bool(esperado)
+    assert Atividade.all()[0].saldo == 5.0 * esperado
+
+
+def test_creditar_tudo_confere_com_contagem_ingenua():
+    # Conta as ocorrências do dia de início em (timestamp, hoje]
+    base = datetime.date(2026, 1, 5)
+    for inicio in range(1, 8):
+        for desloc in range(7):
+            timestamp = base + datetime.timedelta(desloc)
+            for dias in range(1, 30):
+                hoje = timestamp + datetime.timedelta(dias)
+                esperado = sum(
+                    1 for k in range(1, dias + 1)
+                    if (timestamp + datetime.timedelta(k)).isoweekday() == inicio)
+                Atividade.clear()
+                Atividade(nome='A1', pts=1.0, saldo=0)
+                creditar_tudo(toth=1, inicio=inicio, timestamp=timestamp, hoje=hoje)
+                assert Atividade.all()[0].saldo == esperado, (inicio, timestamp, hoje)

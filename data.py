@@ -145,17 +145,22 @@ def salvar_config(toth, inicio, timestamp):
     parser.write(cfg)
 
 
-def creditar_tudo(toth, inicio, timestamp):
-    '''Verifica se existem horas a serem creditadas nas atividades e credita-as.'''
+def creditar_tudo(toth, inicio, timestamp, hoje=None):
+    '''Verifica se existem horas a serem creditadas nas atividades e credita-as.
+
+    hoje permite informar a data atual (útil em testes); por padrão, usa
+    datetime.date.today().'''
+    if hoje is None:
+        hoje = datetime.date.today()
     if timestamp == 0: # primeira execução após init
         vezes = 1
     else:
-        vezes = dias_x_entre(inicio, timestamp, datetime.date.today())
+        vezes = dias_x_entre(inicio, timestamp, hoje)
         # se o timestamp corresponde ao dia da semana de inicio da contagem
         # a funcao dias_x_entre contará, além do esperado, o próprio dia do
         # timestamp, sendo que as horas daquele dia já foram creditadas, daí:
         if timestamp.isoweekday() == inicio:
-        	vezes -= 1
+            vezes -= 1
     for a in Atividade.all():
         a.creditarh(toth, vezes)
 
