@@ -6,7 +6,7 @@ Use gui_pyside.py para diálogos e caixas de mensagem.
 """
 import sys, os, string, types, pickle, traceback
 from utils import ICON
-from gui_pyside import ChoiceBoxQt, TextEntryBoxQt, file_open_dialog, show_message
+from gui_pyside import ButtonBoxQt, ChoiceBoxQt, TextEntryBoxQt, file_open_dialog, show_message
 
 # Caixas de diálogo principais usando PySide6
 
@@ -31,10 +31,7 @@ def ynbox(msg="Shall I continue?", title=" ", choices=("Sim", "Não"), image=Non
     @arg title: the window title
     @arg choices: a list or tuple of the choices to be displayed
     """
-    dlg = ChoiceBoxQt(title, msg, choices)
-    if dlg.exec():
-        return dlg.get() == choices[0]
-    return False
+    return boolbox(msg, title, choices, image=image)
 
 
 #-----------------------------------------------------------------------
@@ -144,10 +141,9 @@ def buttonbox(msg="", title=" "
     @arg title: the window title
     @arg choices: a list or tuple of the choices to be displayed
     """
-    dlg = ChoiceBoxQt(title, msg, choices)
-    if dlg.exec():
-        return dlg.get()
-    return None
+    dlg = ButtonBoxQt(title, msg, choices)
+    dlg.exec()
+    return dlg.get()
 
 
 #-------------------------------------------------------------------

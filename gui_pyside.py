@@ -184,6 +184,9 @@ class ChoiceBoxQt(QDialog):
         self.listbox = QListWidget()
         for choice in choices:
             self.listbox.addItem(str(choice))
+        # Como no easygui original, a primeira opção já vem selecionada
+        if self.listbox.count():
+            self.listbox.setCurrentRow(0)
         layout.addWidget(self.listbox)
         btn_layout = QHBoxLayout()
         self.ok_btn = QPushButton('OK')
@@ -197,6 +200,46 @@ class ChoiceBoxQt(QDialog):
     def get(self):
         selected = self.listbox.currentItem()
         return selected.text() if selected else None
+
+class ButtonBoxQt(QDialog):
+    '''Mensagem com um botão para cada opção; get() devolve a opção clicada.
+
+    Como no easygui original, a janela não fecha sem que um botão seja
+    escolhido: Esc e o botão "X" são ignorados.'''
+    def __init__(self, title, msg, choices):
+        super().__init__()
+        self.setWindowTitle(title)
+        self.resposta = None
+        layout = QVBoxLayout()
+        msglbl = QLabel(msg)
+        msglbl.setWordWrap(True)
+        layout.addWidget(msglbl)
+        btn_layout = QHBoxLayout()
+        self.botoes = []
+        for choice in choices:
+            btn = QPushButton(str(choice))
+            btn.setAutoDefault(False)
+            btn.clicked.connect(lambda _checked=False, c=choice: self._escolher(c))
+            btn_layout.addWidget(btn)
+            self.botoes.append(btn)
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+        if self.botoes:
+            self.botoes[0].setDefault(True)
+            self.botoes[0].setFocus()
+    def _escolher(self, choice):
+        self.resposta = choice
+        self.accept()
+    def reject(self):
+        QApplication.beep()
+    def closeEvent(self, event):
+        if self.resposta is None:
+            QApplication.beep()
+            event.ignore()
+        else:
+            super().closeEvent(event)
+    def get(self):
+        return self.resposta
 
 class TextEntryBoxQt(QDialog):
     def __init__(self, title, msg, default_text=''):
