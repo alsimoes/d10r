@@ -1,0 +1,737 @@
+From 2057e9831dc97fcb59d43ecffdefba42aa3c4c71 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 10 Sep 2026 17:31:15 +0000
+Subject: [PATCH 1/3] =?UTF-8?q?fix(gui):=20corrige=20cron=C3=B4metro=20que?=
+ =?UTF-8?q?=20encerrava=20o=20programa?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Remove de gui.py a classe CronometroDialogQt duplicada, que sombreava
+  o diálogo importado de gui_pyside.py. Ela não tinha exec(), e o
+  AttributeError era engolido pelo main(), fechando o app sem aviso.
+- main(): trata o cancelamento da escolha de atividade com
+  'if atividade is None' em vez de capturar AttributeError, para não
+  esconder erros reais.
+- CronometroDialogQt passa a respeitar 'parar' (antes sempre usava o
+  saldo como limite; com saldo <= 0 o débito saía negativo).
+- Restaura FimAlcancado, usando um sinalizador do Cronometro em vez de
+  comparar floats.
+- Cronometro(None) agora conta sem limite (antes virava fim=0).
+- Fechar a janela pelo 'X' ou Esc também para a thread.
+- Saldo exibido com formatah().
+- Adiciona testes de regressão e tests/conftest.py (modo offscreen).
+---
+ d10r.py             |  4 +--
+ gui.py              | 79 +++++++--------------------------------------
+ gui_pyside.py       | 31 +++++++++++-------
+ tests/conftest.py   | 16 +++++++++
+ tests/test_gui.py   | 42 ++++++++++++++++++++++++
+ tests/test_utils.py | 14 ++++++++
+ utils.py            | 27 +++++++++-------
+ 7 files changed, 119 insertions(+), 94 deletions(-)
+ create mode 100644 tests/conftest.py
+ create mode 100644 tests/test_gui.py
+
+diff --git a/d10r.py b/d10r.py
+index a78fd4f..e4d11e3 100644
+--- a/d10r.py
++++ b/d10r.py
+@@ -185,6 +185,8 @@ def main():
+         debito = 0
+         try:
+             atividade = escolher_ativ()
++            if atividade is None: # usuário cancelou: encerra o programa
++                break
+ 
+             if atividade.saldo > 0:
+                 debito = debitar(atividade)
+@@ -196,8 +198,6 @@ def main():
+             debito = atividade.saldo
+             gui.notificar('Você acabou de cumprir as horas da atividade:\n' +
+                       atividade.nome)
+-        except AttributeError as e: # usuário clicou em Sair, ou não... =/
+-            break
+         finally:
+             if debito and gui.perguntar('Confirma %s horas gastas com %s?' %
+                          (formatah(debito), atividade.nome)):
+diff --git a/gui.py b/gui.py
+index 30ffeb6..256a1eb 100644
+--- a/gui.py
++++ b/gui.py
+@@ -1,92 +1,35 @@
+ #!/usr/bin/env python
+ # -*- encoding: utf-8 -*-
+-import time
+-import easygui as eg
+-from utils import ICON
+-from gui_pyside import CronometroDialogQt, HoraSpinDialogQt, PrioridadeDialogQt
+ '''
+ Módulo de interface gráfica
+ 
++Os diálogos são implementados com PySide6 em gui_pyside.py; este módulo expõe
++funções simples usadas pelo d10r.py.
++
+ Copyright (C) 2010  Ygor Mutti
+ Licenciado sob GPLv3, com texto disponível no arquivo COPYING
+ '''
+ 
+-# AVISO: Este módulo foi migrado para PySide6. Todas as funções e classes Tkinter foram removidas.
+-# Use gui_pyside.py para interface gráfica.
+-
+-# Mantém apenas utilitários e lógica não gráfica
+-import time
+-import threading
+-from utils import formatah, plataforma, WINDOWS
++import easygui as eg
++from gui_pyside import CronometroDialogQt, HoraSpinDialogQt, PrioridadeDialogQt
+ 
+-ICON = 'icons/d10r.ico' if plataforma() == WINDOWS else '@icons/d10r.xbm'
+ TITLE = 'd10r'
+ 
++
+ class FimAlcancado(Exception):
+     pass
+ 
+-# Removida a classe Cronometro (agora em utils.py)
+-
+-class CronometroDialogQt:
+-    '''Cronômetro assíncrono com threads.'''
+-    def __init__(self, atividade, h=False):
+-        super().__init__()
+-        if atividade and h:
+-            self.fim = atividade.saldo * 3600
+-        else:
+-            self.fim = atividade.saldo if atividade else None
+-        self._decorrido = 0
+-        self._pausado = False
+-        self._parado = False
+-
+-    def run(self):
+-        while True:
+-            if self.fim is not None and self.decorrido >= self.fim:
+-                self._decorrido = self.fim
+-                self.parar()
+-            if self._parado:
+-                break
+-            time.sleep(1)
+-            if not self._pausado:
+-                self._decorrido += 1
+-
+-    def pausar(self):
+-        '''Pausa o cronômetro ou continua a contar, se estiver pausado.'''
+-        self._pausado = not self._pausado
+-
+-    def parar(self):
+-        '''Encerra a contagem e finaliza a thread.'''
+-        self._parado = True
+-
+-    @property
+-    def decorrido(self):
+-        '''Tempo em segundos decorrido desde o início da contagem.'''
+-        return self._decorrido
+-
+-    @property
+-    def decorridoh(self):
+-        '''Mesmo que decorrido, porém retorna o valor em horas.'''
+-        return self._decorrido / 3600.0
+-
+-    @property
+-    def isparado(self):
+-        return self._parado
+-        '''Mesmo que decorrido, porém retorna o valor em horas.'''
+-        return self._decorrido / 3600.0
+-
+-    @property
+-    def isparado(self):
+-        return self._parado
+-
+ 
+ def cronometro_dialog(atividade, parar=True):
+-    '''cronometroDialog(atividade) -> float
++    '''cronometro_dialog(atividade, parar=True) -> float
+ 
+     Fábrica de janelas de cronômetro. Retorna o tempo decorrido em horas desde a
+-    chamada da função. parar determina se o cronômetro deve parar quanto o tempo
+-    decorrido for igual ao saldo da atividade.'''
++    chamada da função. parar determina se o cronômetro deve parar quando o tempo
++    decorrido for igual ao saldo da atividade; nesse caso, levanta FimAlcancado.'''
+     dlg = CronometroDialogQt(atividade, parar)
+     dlg.exec()
++    if parar and dlg.fim_alcancado:
++        raise FimAlcancado
+     return dlg.get_decorrido()
+ 
+ 
+diff --git a/gui_pyside.py b/gui_pyside.py
+index 7108f5c..a8eabb6 100644
+--- a/gui_pyside.py
++++ b/gui_pyside.py
+@@ -39,30 +39,31 @@ class MainWindow(QMainWindow):
+         self.setCentralWidget(central_widget)
+ 
+ class CronometroDialogQt(QDialog):
++    '''Janela do cronômetro. Com parar=True, a contagem termina sozinha ao
++    atingir o saldo da atividade; com parar=False, conta sem limite.'''
+     def __init__(self, atividade, parar=True):
+         super().__init__()
+         self.decorrido_final = 0
+         self.atividade = atividade
+         self.setWindowTitle(f'd10r - Atividade: {atividade.nome}')
+         self.setModal(True)
++        saldo_num = parse_time_str_to_hours(getattr(atividade, 'saldo', 0))
+         layout = QVBoxLayout()
+         self.label = QLabel('Decorrido/Saldo:')
+         layout.addWidget(self.label)
+         self.tempoDecorridoLbl = QLabel('00:00:00')
+         layout.addWidget(self.tempoDecorridoLbl)
+-        self.tempoSaldoLbl = QLabel(f'/ {getattr(atividade, "saldo", "00:00:00")}')
++        self.tempoSaldoLbl = QLabel('/ ' + formatah(saldo_num))
+         layout.addWidget(self.tempoSaldoLbl)
+         self.pausarBtn = QCheckBox('Pausar')
+         layout.addWidget(self.pausarBtn)
+         self.pararBtn = QPushButton('Finalizar')
+         layout.addWidget(self.pararBtn)
+         self.setLayout(layout)
+-        # Integração com cronômetro real
+-        saldo_str = getattr(self.atividade, 'saldo', '0')
+-        saldo_num = parse_time_str_to_hours(saldo_str)
+-        print(f'[DEBUG] Saldo original: {saldo_str}, Saldo em horas: {saldo_num}')
+-
+-        self.cronometro = Cronometro(saldo_num, True)
++        if parar:
++            self.cronometro = Cronometro(saldo_num, True)
++        else:
++            self.cronometro = Cronometro(None)
+         self.cronometro.start()
+         self.timer = QTimer(self)
+         self.timer.timeout.connect(self._refresh)
+@@ -70,23 +71,29 @@ class CronometroDialogQt(QDialog):
+         self.pararBtn.clicked.connect(self.fechar)
+         self.pausarBtn.stateChanged.connect(self.pausarCb)
+     def _refresh(self):
+-        decorrido_segundos = self.cronometro.decorrido if hasattr(self.cronometro, 'decorrido') else 0
+-        # A função formatah espera o tempo em horas, então convertemos
+-        decorrido_horas = decorrido_segundos / 3600.0
+-        self.tempoDecorridoLbl.setText(formatah(decorrido_horas, segundos=True, sinal=False))
++        self.tempoDecorridoLbl.setText(
++            formatah(self.cronometro.decorridoh, segundos=True, sinal=False))
+         if self.cronometro.isparado:
+             self.fechar()
+     def pausarCb(self):
+         self.cronometro.pausar()
+     def fechar(self):
++        self.accept()
++    def done(self, resultado):
++        # accept() e reject() (Esc ou botão "X") passam por aqui: garante que a
++        # thread pare e o tempo decorrido seja registrado em qualquer caso.
+         self.timer.stop()
+         self.cronometro.parar()
+         self.decorrido_final = self.cronometro.decorridoh
+-        self.accept()
++        super().done(resultado)
+ 
+     def get_decorrido(self):
+         return self.decorrido_final
+ 
++    @property
++    def fim_alcancado(self):
++        return self.cronometro.fim_alcancado
++
+ class HoraSpinDialogQt(QDialog):
+     def __init__(self, msg):
+         super().__init__()
+diff --git a/tests/conftest.py b/tests/conftest.py
+new file mode 100644
+index 0000000..90c398e
+--- /dev/null
++++ b/tests/conftest.py
+@@ -0,0 +1,16 @@
++'''Configuração compartilhada do pytest.'''
++
++import os
++
++# Permite rodar os testes de interface sem servidor gráfico (CI, SSH, etc.)
++os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
++
++import pytest
++
++
++@pytest.fixture(scope='session')
++def qapp():
++    '''Instância única de QApplication para os testes de interface.'''
++    from PySide6.QtWidgets import QApplication
++    app = QApplication.instance() or QApplication([])
++    yield app
+diff --git a/tests/test_gui.py b/tests/test_gui.py
+new file mode 100644
+index 0000000..f19efc1
+--- /dev/null
++++ b/tests/test_gui.py
+@@ -0,0 +1,42 @@
++import pytest
++from PySide6.QtCore import QTimer
++
++import gui
++import gui_pyside
++
++
++class AtividadeFake:
++    def __init__(self, nome='Estudar', saldo=1.0):
++        self.nome = nome
++        self.saldo = saldo
++
++
++def test_gui_usa_dialogo_de_cronometro_do_pyside():
++    # Regressão: gui.py redefinia CronometroDialogQt, sombreando o import, e a
++    # classe local não tinha exec(), o que encerrava o programa.
++    assert gui.CronometroDialogQt is gui_pyside.CronometroDialogQt
++
++
++def test_cronometro_dialog_levanta_fim_alcancado(qapp):
++    atividade = AtividadeFake(saldo=1 / 3600)  # 1 segundo
++    with pytest.raises(gui.FimAlcancado):
++        gui.cronometro_dialog(atividade, parar=True)
++
++
++def test_cronometro_sem_limite_quando_parar_e_false(qapp):
++    # Atividade sem saldo, que o usuário decidiu continuar mesmo assim
++    dlg = gui_pyside.CronometroDialogQt(AtividadeFake(saldo=-2.0), parar=False)
++    assert dlg.cronometro.fim is None
++    QTimer.singleShot(300, dlg.pararBtn.click)
++    dlg.exec()
++    assert dlg.cronometro.isparado
++    assert not dlg.fim_alcancado
++    assert dlg.get_decorrido() >= 0
++
++
++def test_fechar_janela_do_cronometro_para_a_thread(qapp):
++    dlg = gui_pyside.CronometroDialogQt(AtividadeFake(), parar=False)
++    dlg.show()
++    dlg.close()  # equivalente ao botão "X"
++    assert dlg.cronometro.isparado
++    assert not dlg.timer.isActive()
+diff --git a/tests/test_utils.py b/tests/test_utils.py
+index d50d679..d926df5 100644
+--- a/tests/test_utils.py
++++ b/tests/test_utils.py
+@@ -26,3 +26,17 @@ def test_dias_x_entre():
+     # Ex: Quantas sextas-feiras (5) no mesmo período
+     # Dias 5, 12 são sextas-feiras
+     assert dias_x_entre(5, d_inicio, d_fim) == 2
++
++
++def test_cronometro_sem_fim():
++    from utils import Cronometro
++    assert Cronometro(None).fim is None
++    assert Cronometro(None, True).fim is None
++
++
++def test_cronometro_marca_fim_alcancado():
++    from utils import Cronometro
++    c = Cronometro(0, True)
++    c.run()  # síncrono: o fim já foi atingido na primeira verificação
++    assert c.isparado
++    assert c.fim_alcancado
+diff --git a/utils.py b/utils.py
+index 32aa183..83d0de8 100644
+--- a/utils.py
++++ b/utils.py
+@@ -74,26 +74,26 @@ def dias_x_entre(dia, antes, depois):
+ 
+ 
+ class Cronometro(threading.Thread):
+-    '''Cronômetro assíncrono com threads.'''
++    '''Cronômetro assíncrono com threads.
++
++    fim=None cria um cronômetro sem limite, que só para com parar(). Se h=True,
++    fim é interpretado em horas; caso contrário, em segundos.'''
+     def __init__(self, fim=None, h=False):
+-        super().__init__()
+-        # Garante que fim seja numérico
+-        if isinstance(fim, (int, float)) and h:
+-            self.fim = fim * 3600
+-        elif isinstance(fim, (int, float)):
+-            self.fim = fim
++        # daemon: uma contagem esquecida não impede o programa de encerrar
++        super().__init__(daemon=True)
++        if fim is None:
++            self.fim = None
+         else:
+-            try:
+-                self.fim = float(fim)
+-            except Exception:
+-                self.fim = 0
++            self.fim = float(fim) * 3600 if h else float(fim)
+         self._decorrido = 0
+         self._pausado = False
+         self._parado = False
++        self._fim_alcancado = False
+     def run(self):
+         while True:
+             if self.fim is not None and self.decorrido >= self.fim:
+                 self._decorrido = self.fim
++                self._fim_alcancado = True
+                 self.parar()
+             if self._parado:
+                 break
+@@ -113,6 +113,9 @@ class Cronometro(threading.Thread):
+     @property
+     def isparado(self):
+         return self._parado
+-
++    @property
++    def fim_alcancado(self):
++        '''True se a contagem parou por ter atingido fim.'''
++        return self._fim_alcancado
+ 
+ ICON = 'icons/d10r.ico' if plataforma() == WINDOWS else '@icons/d10r.xbm'
+-- 
+2.43.0
+
+
+From a41559a6f19d31da15f84a70709fec679b62fed8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 10 Sep 2026 17:31:52 +0000
+Subject: [PATCH 2/3] =?UTF-8?q?fix(utils):=20corrige=20contagem=20de=20sem?=
+ =?UTF-8?q?anas=20no=20cr=C3=A9dito=20de=20horas?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- dias_x_entre não considerava a virada da semana (ex.: de sábado a
+  segunda contava 0 segundas-feiras), fazendo creditar_tudo deixar de
+  creditar semanas.
+- A contagem inclui as duas datas, como já esperava o teste existente;
+  creditar_tudo continua descontando o dia do último crédito.
+- creditar_tudo aceita o parâmetro opcional 'hoje' para permitir testes
+  (comportamento padrão inalterado).
+- Troca o tab misturado com espaços por espaços.
+- Adiciona testes comparando com uma contagem ingênua dia a dia.
+---
+ data.py             | 13 +++++++++----
+ tests/test_data.py  | 34 ++++++++++++++++++++++++++++++++++
+ tests/test_utils.py | 24 ++++++++++++++++++++++++
+ utils.py            | 14 ++++++++------
+ 4 files changed, 75 insertions(+), 10 deletions(-)
+
+diff --git a/data.py b/data.py
+index f8d34e8..6d940ef 100644
+--- a/data.py
++++ b/data.py
+@@ -145,17 +145,22 @@ def salvar_config(toth, inicio, timestamp):
+     parser.write(cfg)
+ 
+ 
+-def creditar_tudo(toth, inicio, timestamp):
+-    '''Verifica se existem horas a serem creditadas nas atividades e credita-as.'''
++def creditar_tudo(toth, inicio, timestamp, hoje=None):
++    '''Verifica se existem horas a serem creditadas nas atividades e credita-as.
++
++    hoje permite informar a data atual (útil em testes); por padrão, usa
++    datetime.date.today().'''
++    if hoje is None:
++        hoje = datetime.date.today()
+     if timestamp == 0: # primeira execução após init
+         vezes = 1
+     else:
+-        vezes = dias_x_entre(inicio, timestamp, datetime.date.today())
++        vezes = dias_x_entre(inicio, timestamp, hoje)
+         # se o timestamp corresponde ao dia da semana de inicio da contagem
+         # a funcao dias_x_entre contará, além do esperado, o próprio dia do
+         # timestamp, sendo que as horas daquele dia já foram creditadas, daí:
+         if timestamp.isoweekday() == inicio:
+-        	vezes -= 1
++            vezes -= 1
+     for a in Atividade.all():
+         a.creditarh(toth, vezes)
+ 
+diff --git a/tests/test_data.py b/tests/test_data.py
+index 314a27d..e7e4b9b 100644
+--- a/tests/test_data.py
++++ b/tests/test_data.py
+@@ -67,3 +67,37 @@ def test_creditar_tudo():
+ 
+     assert a1.saldo == 5.0 # 50% de 10
+     assert a2.saldo == 7.0 # 2 (saldo inicial) + 5
++
++
++@pytest.mark.parametrize('timestamp, hoje, esperado', [
++    # último crédito numa segunda, 14 dias depois: 2 semanas (antes creditava 1)
++    (datetime.date(2024, 1, 1), datetime.date(2024, 1, 15), 2),
++    # último crédito numa segunda, 7 dias depois: 1 semana (antes creditava 0)
++    (datetime.date(2024, 1, 1), datetime.date(2024, 1, 8), 1),
++    # último crédito num sábado, segunda seguinte: 1 semana (antes creditava 0)
++    (datetime.date(2024, 1, 6), datetime.date(2024, 1, 8), 1),
++    # mesma semana, antes da próxima segunda: nada a creditar
++    (datetime.date(2024, 1, 2), datetime.date(2024, 1, 7), 0),
++])
++def test_creditar_tudo_semanas(timestamp, hoje, esperado):
++    Atividade(nome='A1', pts=0.5, saldo=0)
++    creditou = creditar_tudo(toth=10, inicio=1, timestamp=timestamp, hoje=hoje)
++    assert creditou is bool(esperado)
++    assert Atividade.all()[0].saldo == 5.0 * esperado
++
++
++def test_creditar_tudo_confere_com_contagem_ingenua():
++    # Conta as ocorrências do dia de início em (timestamp, hoje]
++    base = datetime.date(2026, 1, 5)
++    for inicio in range(1, 8):
++        for desloc in range(7):
++            timestamp = base + datetime.timedelta(desloc)
++            for dias in range(1, 30):
++                hoje = timestamp + datetime.timedelta(dias)
++                esperado = sum(
++                    1 for k in range(1, dias + 1)
++                    if (timestamp + datetime.timedelta(k)).isoweekday() == inicio)
++                Atividade.clear()
++                Atividade(nome='A1', pts=1.0, saldo=0)
++                creditar_tudo(toth=1, inicio=inicio, timestamp=timestamp, hoje=hoje)
++                assert Atividade.all()[0].saldo == esperado, (inicio, timestamp, hoje)
+diff --git a/tests/test_utils.py b/tests/test_utils.py
+index d926df5..17feae0 100644
+--- a/tests/test_utils.py
++++ b/tests/test_utils.py
+@@ -40,3 +40,27 @@ def test_cronometro_marca_fim_alcancado():
+     c.run()  # síncrono: o fim já foi atingido na primeira verificação
+     assert c.isparado
+     assert c.fim_alcancado
++
++
++def _contar_ingenuo(dia, antes, depois):
++    total = (depois - antes).days
++    return sum(1 for k in range(total + 1)
++               if (antes + datetime.timedelta(k)).isoweekday() == dia)
++
++
++def test_dias_x_entre_virada_de_semana():
++    # Regressão: de sábado (10/01/2026) a segunda (12/01/2026) há 1 segunda-feira
++    sabado = datetime.date(2026, 1, 10)
++    segunda = datetime.date(2026, 1, 12)
++    assert dias_x_entre(1, sabado, segunda) == 1
++
++
++def test_dias_x_entre_confere_com_contagem_ingenua():
++    base = datetime.date(2026, 1, 5)
++    for desloc in range(7):
++        antes = base + datetime.timedelta(desloc)
++        for dias in range(0, 30):
++            depois = antes + datetime.timedelta(dias)
++            for dia in range(1, 8):
++                assert dias_x_entre(dia, antes, depois) == \
++                    _contar_ingenuo(dia, antes, depois), (dia, antes, depois)
+diff --git a/utils.py b/utils.py
+index 83d0de8..3ff4ab7 100644
+--- a/utils.py
++++ b/utils.py
+@@ -62,13 +62,15 @@ def dias_ate_prox_dia(dia, x):
+ def dias_x_entre(dia, antes, depois):
+     '''dias_x_entre(dia, antes, depois) -> int
+ 
+-    Determina quantas vezes ocorre um dia da semana entre duas datas.'''
+-    # Adiciona 1 para incluir a data final no cálculo
++    Determina quantas vezes um dia da semana (formato ISO) ocorre entre duas
++    datas, incluindo as duas extremidades.'''
+     total_dias = (depois - antes).days + 1
+-    div, mod = divmod(total_dias, 7)
+-    n = div
+-    # Adiciona 1 se o dia da semana ocorre nos dias restantes
+-    if mod > 0 and antes.isoweekday() <= dia <= antes.isoweekday() + mod -1:
++    if total_dias <= 0:
++        return 0
++    n, resto = divmod(total_dias, 7)
++    # Os dias restantes cobrem os deslocamentos 0..resto-1 a partir de 'antes',
++    # inclusive quando atravessam a virada da semana (ex.: sábado -> segunda).
++    if resto and dias_ate_prox_dia(dia, antes.isoweekday()) < resto:
+         n += 1
+     return n
+ 
+-- 
+2.43.0
+
+
+From b5f60da601b40263b09f4356c7a85ebe220edf26 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 10 Sep 2026 17:36:36 +0000
+Subject: [PATCH 3/3] =?UTF-8?q?fix(easygui):=20restaura=20di=C3=A1logos=20?=
+ =?UTF-8?q?com=20bot=C3=B5es?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A migração para PySide6 trocou buttonbox e ynbox por uma lista de
+opções: clicar OK sem selecionar devolvia None/False, e no menu_cfg isso
+caía no ramo 'Sair'.
+
+- Adiciona ButtonBoxQt (um botão por opção). Como no easygui original,
+  a janela só fecha escolhendo um botão (Esc e 'X' são ignorados).
+- buttonbox usa ButtonBoxQt; ynbox volta a delegar para boolbox.
+- ChoiceBoxQt pré-seleciona a primeira opção, como no original.
+- Adiciona testes.
+---
+ easygui.py        | 14 +++++--------
+ gui_pyside.py     | 43 ++++++++++++++++++++++++++++++++++++++++
+ tests/test_gui.py | 50 +++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 98 insertions(+), 9 deletions(-)
+
+diff --git a/easygui.py b/easygui.py
+index e6fc41a..22c4bfe 100644
+--- a/easygui.py
++++ b/easygui.py
+@@ -6,7 +6,7 @@ Use gui_pyside.py para diálogos e caixas de mensagem.
+ """
+ import sys, os, string, types, pickle, traceback
+ from utils import ICON
+-from gui_pyside import ChoiceBoxQt, TextEntryBoxQt, file_open_dialog, show_message
++from gui_pyside import ButtonBoxQt, ChoiceBoxQt, TextEntryBoxQt, file_open_dialog, show_message
+ 
+ # Caixas de diálogo principais usando PySide6
+ 
+@@ -31,10 +31,7 @@ def ynbox(msg="Shall I continue?", title=" ", choices=("Sim", "Não"), image=Non
+     @arg title: the window title
+     @arg choices: a list or tuple of the choices to be displayed
+     """
+-    dlg = ChoiceBoxQt(title, msg, choices)
+-    if dlg.exec():
+-        return dlg.get() == choices[0]
+-    return False
++    return boolbox(msg, title, choices, image=image)
+ 
+ 
+ #-----------------------------------------------------------------------
+@@ -144,10 +141,9 @@ def buttonbox(msg="", title=" "
+     @arg title: the window title
+     @arg choices: a list or tuple of the choices to be displayed
+     """
+-    dlg = ChoiceBoxQt(title, msg, choices)
+-    if dlg.exec():
+-        return dlg.get()
+-    return None
++    dlg = ButtonBoxQt(title, msg, choices)
++    dlg.exec()
++    return dlg.get()
+ 
+ 
+ #-------------------------------------------------------------------
+diff --git a/gui_pyside.py b/gui_pyside.py
+index a8eabb6..02428d2 100644
+--- a/gui_pyside.py
++++ b/gui_pyside.py
+@@ -184,6 +184,9 @@ class ChoiceBoxQt(QDialog):
+         self.listbox = QListWidget()
+         for choice in choices:
+             self.listbox.addItem(str(choice))
++        # Como no easygui original, a primeira opção já vem selecionada
++        if self.listbox.count():
++            self.listbox.setCurrentRow(0)
+         layout.addWidget(self.listbox)
+         btn_layout = QHBoxLayout()
+         self.ok_btn = QPushButton('OK')
+@@ -198,6 +201,46 @@ class ChoiceBoxQt(QDialog):
+         selected = self.listbox.currentItem()
+         return selected.text() if selected else None
+ 
++class ButtonBoxQt(QDialog):
++    '''Mensagem com um botão para cada opção; get() devolve a opção clicada.
++
++    Como no easygui original, a janela não fecha sem que um botão seja
++    escolhido: Esc e o botão "X" são ignorados.'''
++    def __init__(self, title, msg, choices):
++        super().__init__()
++        self.setWindowTitle(title)
++        self.resposta = None
++        layout = QVBoxLayout()
++        msglbl = QLabel(msg)
++        msglbl.setWordWrap(True)
++        layout.addWidget(msglbl)
++        btn_layout = QHBoxLayout()
++        self.botoes = []
++        for choice in choices:
++            btn = QPushButton(str(choice))
++            btn.setAutoDefault(False)
++            btn.clicked.connect(lambda _checked=False, c=choice: self._escolher(c))
++            btn_layout.addWidget(btn)
++            self.botoes.append(btn)
++        layout.addLayout(btn_layout)
++        self.setLayout(layout)
++        if self.botoes:
++            self.botoes[0].setDefault(True)
++            self.botoes[0].setFocus()
++    def _escolher(self, choice):
++        self.resposta = choice
++        self.accept()
++    def reject(self):
++        QApplication.beep()
++    def closeEvent(self, event):
++        if self.resposta is None:
++            QApplication.beep()
++            event.ignore()
++        else:
++            super().closeEvent(event)
++    def get(self):
++        return self.resposta
++
+ class TextEntryBoxQt(QDialog):
+     def __init__(self, title, msg, default_text=''):
+         super().__init__()
+diff --git a/tests/test_gui.py b/tests/test_gui.py
+index f19efc1..00a9607 100644
+--- a/tests/test_gui.py
++++ b/tests/test_gui.py
+@@ -40,3 +40,53 @@ def test_fechar_janela_do_cronometro_para_a_thread(qapp):
+     dlg.close()  # equivalente ao botão "X"
+     assert dlg.cronometro.isparado
+     assert not dlg.timer.isActive()
++
++
++def _clicar_no_dialogo_ativo(texto):
++    '''Agenda um clique no botão 'texto' do diálogo modal que estiver aberto.'''
++    from PySide6.QtWidgets import QApplication
++
++    def clicar():
++        dlg = QApplication.activeModalWidget()
++        alvo = next((b for b in getattr(dlg, 'botoes', []) if b.text() == texto),
++                    None)
++        if alvo is None:
++            dlg.done(0)  # não trava a suíte; o assert do teste acusa a falha
++        else:
++            alvo.click()
++    QTimer.singleShot(100, clicar)
++
++
++def test_buttonbox_retorna_o_botao_clicado(qapp):
++    dlg = gui_pyside.ButtonBoxQt('d10r', 'O que deseja fazer?',
++                                 ('Novo', 'Procurar', 'Sair'))
++    assert [b.text() for b in dlg.botoes] == ['Novo', 'Procurar', 'Sair']
++    dlg.botoes[1].click()
++    assert dlg.get() == 'Procurar'
++
++
++def test_buttonbox_ignora_esc_e_botao_fechar(qapp):
++    dlg = gui_pyside.ButtonBoxQt('d10r', 'Mensagem', ('Sim', 'Não'))
++    dlg.show()
++    dlg.reject()  # Esc
++    assert dlg.isVisible()
++    dlg.close()   # botão "X"
++    assert dlg.isVisible()
++    dlg.botoes[0].click()
++    assert not dlg.isVisible()
++
++
++@pytest.mark.parametrize('botao, esperado', [('Sim', True), ('Não', False)])
++def test_perguntar_usa_botoes(qapp, botao, esperado):
++    _clicar_no_dialogo_ativo(botao)
++    assert gui.perguntar('Confirma?') is esperado
++
++
++def test_menu_retorna_texto_do_botao(qapp):
++    _clicar_no_dialogo_ativo('Inserir')
++    assert gui.menu('Como registrar?', ('Cronômetro', 'Inserir')) == 'Inserir'
++
++
++def test_choicebox_preseleciona_primeira_opcao(qapp):
++    dlg = gui_pyside.ChoiceBoxQt('d10r', 'Escolha', ['0- A', '1- B'])
++    assert dlg.get() == '0- A'
+-- 
+2.43.0
+
