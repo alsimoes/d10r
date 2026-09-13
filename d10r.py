@@ -20,6 +20,8 @@ __version__ = '0.1'
 import shutil
 import datetime
 
+from PySide6.QtWidgets import QApplication
+
 import gui
 import data
 from utils import formatah
@@ -171,7 +173,7 @@ def main():
         try:
             toth, inicio, timestamp = data.parse_config()
             break
-        except data.ArquivoError, e:
+        except data.ArquivoError as e:
             menu_cfg(str(e))
 
     while True:
@@ -183,6 +185,8 @@ def main():
         debito = 0
         try:
             atividade = escolher_ativ()
+            if atividade is None: # usuário cancelou: encerra o programa
+                break
 
             if atividade.saldo > 0:
                 debito = debitar(atividade)
@@ -192,16 +196,16 @@ def main():
                     debito = debitar(atividade, False)
         except gui.FimAlcancado:
             debito = atividade.saldo
-            gui.notificar(u'Você acabou de cumprir as horas da atividade:\n' +
+            gui.notificar('Você acabou de cumprir as horas da atividade:\n' +
                       atividade.nome)
-        except AttributeError, e: # usuário clicou em Sair, ou não... =/
-            break
         finally:
-            if debito and gui.perguntar(u'Confirma %s horas gastas com %s?' %
+            if debito and gui.perguntar('Confirma %s horas gastas com %s?' %
                          (formatah(debito), atividade.nome)):
                 atividade.debitarh(debito)
             data.salvar_config(toth, inicio, timestamp)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    import sys
+    app = QApplication(sys.argv)
     main()

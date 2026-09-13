@@ -10,7 +10,7 @@ Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 import os
 import codecs
 import datetime
-from ConfigParser import SafeConfigParser, NoSectionError
+from configparser import ConfigParser, NoSectionError
 
 from utils import dias_x_entre
 
@@ -52,8 +52,7 @@ class Collection(type):
         return obj
 
 
-class Atividade(object):
-    __metaclass__ = Collection
+class Atividade(metaclass=Collection):
 
     def __init__(self, nome, pts, saldo):
         '''nome -> str
@@ -82,10 +81,10 @@ def parse_config():
     Analisa o arquivo em CONFIG e retorna o total de horas disponíveis, o dia da
     semana de início da contagem (no formato ISO) e a data do último crédito de
     horas, além de instanciar as atividades.'''
-    parser = SafeConfigParser()
+    parser = ConfigParser()
 
     try:
-        parser.readfp(codecs.open(CONFIG, 'r', ENCODING))
+        parser.read_file(codecs.open(CONFIG, 'r', ENCODING))
     except IOError:
         raise ArquivoError('Nenhum arquivo de configuração encontrado.')
 
@@ -121,7 +120,7 @@ def salvar_config(toth, inicio, timestamp):
         timestamp = timestamp.year * 10000 + \
                     timestamp.month * 100 + timestamp.day
 
-    parser = SafeConfigParser()
+    parser = ConfigParser()
     parser.add_section(HEADER)
 
     # Campos das atividades
@@ -138,25 +137,30 @@ def salvar_config(toth, inicio, timestamp):
     # disponivel: base para calcular as prestações de cada atividade
     # inicio: dia da semana em que as horas são creditadas
     # timestamp: fim da última execução do programa
-    parser.set(HEADER, 'disponivel', `toth`)
-    parser.set(HEADER, 'inicio', `inicio`)
-    parser.set(HEADER, 'timestamp', `timestamp`)
+    parser.set(HEADER, 'disponivel', str(toth))
+    parser.set(HEADER, 'inicio', str(inicio))
+    parser.set(HEADER, 'timestamp', str(timestamp))
 
     cfg = codecs.open(CONFIG, 'w', ENCODING)
     parser.write(cfg)
 
 
-def creditar_tudo(toth, inicio, timestamp):
-    '''Verifica se existem horas a serem creditadas nas atividades e credita-as.'''
+def creditar_tudo(toth, inicio, timestamp, hoje=None):
+    '''Verifica se existem horas a serem creditadas nas atividades e credita-as.
+
+    hoje permite informar a data atual (útil em testes); por padrão, usa
+    datetime.date.today().'''
+    if hoje is None:
+        hoje = datetime.date.today()
     if timestamp == 0: # primeira execução após init
         vezes = 1
     else:
-        vezes = dias_x_entre(inicio, timestamp, datetime.date.today())
+        vezes = dias_x_entre(inicio, timestamp, hoje)
         # se o timestamp corresponde ao dia da semana de inicio da contagem
         # a funcao dias_x_entre contará, além do esperado, o próprio dia do
         # timestamp, sendo que as horas daquele dia já foram creditadas, daí:
         if timestamp.isoweekday() == inicio:
-        	vezes -= 1
+            vezes -= 1
     for a in Atividade.all():
         a.creditarh(toth, vezes)
 

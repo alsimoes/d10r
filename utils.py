@@ -8,7 +8,8 @@ Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 '''
 
 import sys
-
+import threading
+import time
 
 WINDOWS = 'win'
 LINUX = 'linux'
@@ -61,10 +62,62 @@ def dias_ate_prox_dia(dia, x):
 def dias_x_entre(dia, antes, depois):
     '''dias_x_entre(dia, antes, depois) -> int
 
-    Determina quantas vezes ocorre um dia da semana entre duas datas.'''
-    delta = depois - antes
-    div, mod = divmod(delta.days, 7)
-    n = div
-    if (mod >= dias_ate_prox_dia(dia, antes.isoweekday())) and (mod != 0):
+    Determina quantas vezes um dia da semana (formato ISO) ocorre entre duas
+    datas, incluindo as duas extremidades.'''
+    total_dias = (depois - antes).days + 1
+    if total_dias <= 0:
+        return 0
+    n, resto = divmod(total_dias, 7)
+    # Os dias restantes cobrem os deslocamentos 0..resto-1 a partir de 'antes',
+    # inclusive quando atravessam a virada da semana (ex.: sábado -> segunda).
+    if resto and dias_ate_prox_dia(dia, antes.isoweekday()) < resto:
         n += 1
     return n
+
+
+class Cronometro(threading.Thread):
+    '''Cronômetro assíncrono com threads.
+
+    fim=None cria um cronômetro sem limite, que só para com parar(). Se h=True,
+    fim é interpretado em horas; caso contrário, em segundos.'''
+    def __init__(self, fim=None, h=False):
+        # daemon: uma contagem esquecida não impede o programa de encerrar
+        super().__init__(daemon=True)
+        if fim is None:
+            self.fim = None
+        else:
+            self.fim = float(fim) * 3600 if h else float(fim)
+        self._decorrido = 0
+        self._pausado = False
+        self._parado = False
+        self._fim_alcancado = False
+    def run(self):
+        while True:
+            if self.fim is not None and self.decorrido >= self.fim:
+                self._decorrido = self.fim
+                self._fim_alcancado = True
+                self.parar()
+            if self._parado:
+                break
+            time.sleep(1)
+            if not self._pausado:
+                self._decorrido += 1
+    def pausar(self):
+        self._pausado = not self._pausado
+    def parar(self):
+        self._parado = True
+    @property
+    def decorrido(self):
+        return self._decorrido
+    @property
+    def decorridoh(self):
+        return self._decorrido / 3600.0
+    @property
+    def isparado(self):
+        return self._parado
+    @property
+    def fim_alcancado(self):
+        '''True se a contagem parou por ter atingido fim.'''
+        return self._fim_alcancado
+
+ICON = 'icons/d10r.ico' if plataforma() == WINDOWS else '@icons/d10r.xbm'
