@@ -26,9 +26,10 @@ import os
 from contextlib import contextmanager
 from typing import Annotated, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, ValidationError,
+                      field_validator, model_validator)
 from sqlmodel import (CheckConstraint, Field as SQLField, Session, SQLModel,
-                      create_engine, select)
+                      create_engine, delete, select, text)
 
 
 # Versão do schema gravada no metadado singleton. Este sprint só conhece a v1 e
@@ -211,8 +212,9 @@ class ConfigSnapshot(BaseModel):
         return self
 
 
-# Resultado de uma leitura de configuração: um snapshot válido ou o estado
-# tipado "não configurado". Consumido pela facade a partir do ticket 03.
+# Resultado de `SQLiteStore.load_snapshot()`: um snapshot válido ou o estado
+# tipado "não configurado", convertido na facade para o fluxo de primeira
+# execução.
 LoadedConfig = Union[ConfigSnapshot, Unconfigured]
 
 
@@ -308,6 +310,138 @@ class SQLiteStore:
                 return session.get(AppConfigRow, SINGLETON_ID) is not None
         except Exception as erro:
             raise StorageError('Falha ao ler a configuração.') from erro
+
+    def integrity_check(self):
+        '''Valida o arquivo antes de ele ser usado como armazenamento.
+
+        Reprova, nesta ordem: arquivo ausente, arquivo inacessível ou que não é
+        um banco SQLite, `PRAGMA integrity_check` diferente de `ok`, metadado de
+        schema ausente/duplicado e versão diferente da v1. Um banco v1 sem
+        configuração passa: falta de configuração não é corrupção.'''
+        self._exigir_arquivo()
+
+        try:
+            with self._engine() as engine:
+                with engine.connect() as conexao:
+                    resultado = [linha[0] for linha in
+                                 conexao.execute(text('PRAGMA integrity_check'))]
+                if resultado != ['ok']:
+                    raise StorageError('Integridade do banco de dados inválida: %s'
+                                       % ('; '.join(str(l) for l in resultado),))
+                with Session(engine) as session:
+                    self._exigir_metadado_v1(session)
+        except StorageError:
+            raise
+        except Exception as erro:
+            raise StorageError('Banco de dados inválido ou inacessível: %s'
+                               % (self.path,)) from erro
+
+    def load_snapshot(self):
+        '''load_snapshot() -> ConfigSnapshot | Unconfigured
+
+        Lê a configuração e as atividades numa única sessão. Devolve o estado
+        tipado `UNCONFIGURED` quando o banco é v1 válido mas o singleton de
+        configuração ainda não existe; qualquer outro desvio (metadado ausente,
+        versão desconhecida, conteúdo que não valida) é erro de armazenamento.
+
+        A ordem das atividades é a ordem de inserção, preservada pela chave
+        técnica, para que a lista de prioridades do usuário não se embaralhe.'''
+        self._exigir_arquivo()
+
+        try:
+            with self._session() as session:
+                self._exigir_metadado_v1(session)
+
+                config = session.get(AppConfigRow, SINGLETON_ID)
+                if config is None:
+                    return UNCONFIGURED
+
+                # Os valores são extraídos dentro da sessão; nada é acessado
+                # depois de a instância ser desanexada.
+                parametros = {'toth': config.toth,
+                              'inicio': config.inicio,
+                              'last_credit_date': config.last_credit_date,
+                              'acumular': config.acumular}
+                atividades = [(linha.name, linha.pts, linha.saldo)
+                              for linha in session.exec(
+                                  select(ActivityRow).order_by(ActivityRow.id))]
+        except StorageError:
+            raise
+        except Exception as erro:
+            raise StorageError('Falha ao ler o banco de dados: %s'
+                               % (self.path,)) from erro
+
+        # A validação fica fora do bloco de I/O para que um conteúdo inválido não
+        # seja confundido com uma falha de leitura.
+        try:
+            return ConfigSnapshot(
+                activities=tuple(ActivitySnapshot(name=nome, pts=pts, saldo=saldo)
+                                 for nome, pts, saldo in atividades),
+                **parametros)
+        except ValidationError as erro:
+            raise StorageError('Conteúdo do banco de dados inválido: %s'
+                               % (self.path,)) from erro
+
+    def save_snapshot(self, snapshot):
+        '''Grava o snapshot inteiro numa única transação.
+
+        O singleton de configuração e o conjunto de atividades são substituídos
+        juntos: ou a gravação completa acontece, ou o snapshot anterior fica
+        intacto. Só aceita um `ConfigSnapshot` já validado, de modo que nomes
+        reservados, duplicados ou floats não finitos não chegam ao banco.'''
+        if not isinstance(snapshot, ConfigSnapshot):
+            raise StorageError('save_snapshot() exige um ConfigSnapshot; '
+                               'recebido %s.' % (type(snapshot).__name__,))
+        self._exigir_arquivo()
+
+        try:
+            with self._session() as session:
+                self._exigir_metadado_v1(session)
+
+                # DELETE em massa, emitido de imediato: a substituição do
+                # conjunto não pode depender da ordem em que a unidade de
+                # trabalho do ORM resolveria remoções e inserções, porque o
+                # índice único de `name` colide se um nome for reaproveitado
+                # antes de a linha antiga sair.
+                session.exec(delete(ActivityRow))
+
+                config = session.get(AppConfigRow, SINGLETON_ID)
+                if config is None:
+                    config = AppConfigRow(id=SINGLETON_ID)
+                    session.add(config)
+                config.toth = snapshot.toth
+                config.inicio = snapshot.inicio
+                config.last_credit_date = snapshot.last_credit_date
+                config.acumular = snapshot.acumular
+
+                for atividade in snapshot.activities:
+                    session.add(ActivityRow(name=atividade.name,
+                                            pts=atividade.pts,
+                                            saldo=atividade.saldo))
+
+                # Único commit da operação; qualquer falha antes dele deixa a
+                # sessão ser fechada e desfeita pelo gerenciador de contexto.
+                session.commit()
+        except StorageError:
+            raise
+        except Exception as erro:
+            raise StorageError('Falha ao gravar o banco de dados: %s'
+                               % (self.path,)) from erro
+
+    def _exigir_metadado_v1(self, session):
+        '''Exige exatamente um metadado de schema e que ele seja a v1.
+
+        A ausência do metadado num arquivo preexistente é corrupção, e uma versão
+        desconhecida nunca é aberta nem migrada em silêncio.'''
+        versoes = [linha.version
+                   for linha in session.exec(select(SchemaVersionRow))]
+
+        if len(versoes) != 1:
+            raise StorageError('Metadado de schema ausente ou duplicado: %s'
+                               % (self.path,))
+        if versoes[0] != SCHEMA_VERSION:
+            raise StorageError('Versão de schema desconhecida: %r (esperada %r).'
+                               % (versoes[0], SCHEMA_VERSION))
 
     def _exigir_arquivo(self):
         '''Evita que uma leitura crie um banco vazio por efeito colateral.'''
