@@ -170,12 +170,21 @@ sumir sem backup e o banco for perdido, a configuração não pode ser recuperad
 
 - Responsável: André Simões (integração delegada ao agente Sol Senior; primeira execução
   manual é ação humana)
-- Data: ____
-- Pull request: ____
-- Head validado: ____
-- Commit integrado: ____
-- CI (push, PR, pós-merge, registro): ____
-- Issue #4: ____
-- Primeira execução real (humano): backup feito em ____, INI removido em ____,
+- Data: 13/09/2026
+- Pull request: https://github.com/alsimoes/d10r/pull/6
+- Head validado: `cc887d9476340c64213dcb654c627b324bf1e420`
+- Commit integrado: `7776e629b41996724db90beba52f099b90a28c2c` (merge em
+  2026-09-13T23:53:29Z)
+- CI (todos verdes e sem anotações):
+  - Push da branch: https://github.com/alsimoes/d10r/actions/runs/34790708887
+  - Pull request: https://github.com/alsimoes/d10r/actions/runs/34790854801
+  - Pós-merge no master: https://github.com/alsimoes/d10r/actions/runs/34790986545
+- Issue #4: fechada automaticamente pelo merge — https://github.com/alsimoes/d10r/issues/4
+- Primeira execução real (humano): pendente — realizar conforme "Primeira execução da
+  versão nova" acima e preencher: backup feito em ____, INI removido em ____,
   verificação pós-execução: ____
-- Ocorrências e rollback: ____
+- Ocorrências e rollback: nenhum gate falhou; os dois passos de risco do primeiro run
+  Windows (diff-check e teste de banco bloqueado) passaram na primeira tentativa. O
+  GitHub removeu automaticamente a branch remota `feat/sprint-3-sqlite` após o merge
+  (configuração do repositório, mesma ocorrência do Sprint 2); a branch local permanece
+  preservada para rollback. Rollback não foi necessário.
