@@ -61,13 +61,21 @@ def init():
                   ' =|\nTchau!')
         raise SystemExit(1)
 
+    acumular = gui.perguntar(
+        'As horas não cumpridas devem se acumular de uma semana para a outra?' +
+        '\n\nAcumular horas é útil apenas se você deve cumprir rigorosamente' +
+        ' a quantidade de horas estipulada. Caso contrário, apenas as horas ' +
+        'cumpridas a mais (se houver) serão acumuladas.')
+
     referencial = sum(prioridades.values())
 
     for nome in atividades:
         pts = (prioridades[nome] * 1.0) / referencial
         data.Atividade(nome, pts, 0)
 
-    data.salvar_config(toth, datetime.date.today().isoweekday(), 0)
+    inicio = datetime.date.today().isoweekday()
+    data.creditar_tudo(toth, inicio, 0, acumular)
+    data.salvar_config(toth, inicio, datetime.date.today(), acumular)
 
     gui.notificar('Configurações salvas com sucesso.')
 
@@ -171,14 +179,14 @@ def main():
     while True:
         data.Atividade.clear()
         try:
-            toth, inicio, timestamp = data.parse_config()
+            toth, inicio, timestamp, acumular = data.parse_config()
             break
         except data.ArquivoError as e:
             menu_cfg(str(e))
 
     while True:
         if (not timestamp) or (datetime.date.today() > timestamp):
-                        if data.creditar_tudo(toth, inicio, timestamp):
+                        if data.creditar_tudo(toth, inicio, timestamp, acumular):
                             # guarda a data do último crédito
                             timestamp = datetime.date.today()
 
@@ -202,7 +210,7 @@ def main():
             if debito and gui.perguntar('Confirma %s horas gastas com %s?' %
                          (formatah(debito), atividade.nome)):
                 atividade.debitarh(debito)
-            data.salvar_config(toth, inicio, timestamp)
+            data.salvar_config(toth, inicio, timestamp, acumular)
 
 
 if __name__ == "__main__":
