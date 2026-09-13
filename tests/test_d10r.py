@@ -84,6 +84,75 @@ def test_cancelar_entrada_manual_gera_debito_zero(monkeypatch):
     assert d10r.debitar(atividade) == 0.0
 
 
+def test_main_sem_configuracao_vai_direto_ao_questionario(monkeypatch):
+    # Nenhum menu de procurar/copiar/selecionar arquivo: o estado "não
+    # configurado" leva direto à primeira configuração.
+    chamadas = iter([data.ConfiguracaoAusente('Nenhum arquivo de configuração '
+                                              'encontrado.'),
+                     (8, 1, 0, True)])
+
+    def parse_config_falso():
+        resultado = next(chamadas)
+        if isinstance(resultado, Exception):
+            raise resultado
+        return resultado
+
+    inicializou = []
+    monkeypatch.setattr(data, 'parse_config', parse_config_falso)
+    monkeypatch.setattr(d10r, 'init', lambda: inicializou.append(True))
+    monkeypatch.setattr(data, 'creditar_tudo', lambda *args, **kwargs: False)
+    monkeypatch.setattr(data.Atividade, 'all', classmethod(lambda cls: []))
+    monkeypatch.setattr(d10r, 'escolher_ativ', lambda: None)
+    monkeypatch.setattr(data, 'salvar_config', lambda *args: None)
+
+    d10r.main()
+
+    assert inicializou == [True]
+
+
+def test_main_com_armazenamento_corrompido_avisa_e_encerra(monkeypatch):
+    # Corrupção não vira primeira execução: isso sobrescreveria dados que o
+    # usuário ainda pode querer recuperar.
+    avisos = []
+    inicializou = []
+
+    def parse_config_corrompido():
+        raise data.ArquivoError('Arquivo de configuração corrompido.')
+
+    monkeypatch.setattr(data, 'parse_config', parse_config_corrompido)
+    monkeypatch.setattr(d10r, 'init', lambda: inicializou.append(True))
+    monkeypatch.setattr(d10r.gui, 'notificar', lambda msg: avisos.append(msg))
+
+    with pytest.raises(SystemExit) as saida:
+        d10r.main()
+
+    assert saida.value.code == 1
+    assert inicializou == []
+    assert avisos == ['Arquivo de configuração corrompido.']
+
+
+def test_main_nao_insiste_quando_a_configuracao_nao_conclui(monkeypatch):
+    # Se o questionário não deixar configuração gravada, o programa desiste em
+    # vez de perguntar para sempre.
+    def sempre_ausente():
+        raise data.ConfiguracaoAusente('Nenhum arquivo de configuração '
+                                       'encontrado.')
+
+    tentativas = []
+    monkeypatch.setattr(data, 'parse_config', sempre_ausente)
+    monkeypatch.setattr(d10r, 'init', lambda: tentativas.append(True))
+
+    with pytest.raises(data.ConfiguracaoAusente):
+        d10r.main()
+
+    assert tentativas == [True]
+
+
+def test_runtime_nao_expoe_mais_o_menu_de_arquivo():
+    assert not hasattr(d10r, 'menu_cfg')
+    assert not hasattr(d10r, 'shutil')
+
+
 def test_recusar_confirmacao_preserva_saldo(monkeypatch):
     atividade = AtividadeFake()
     escolhas = iter([atividade, None])

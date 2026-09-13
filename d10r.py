@@ -17,7 +17,6 @@ __author__ = 'Ygor Mutti <mamutti@icaju.com>'
 __version__ = '0.1'
 
 
-import shutil
 import datetime
 
 from PySide6.QtWidgets import QApplication
@@ -125,40 +124,6 @@ def ler_atividades():
                 raise SystemExit(1)
 
 
-def menu_cfg(msg):
-    '''Exibe um diálogo com opções para procurar e copiar um arquivo de
-    configuração do d10r, criar um novo arquivo e sair do programa.'''
-    botoes = ('Novo', 'Procurar', 'Sair')
-    data.CONFIG
-    msg += '''
-
-O que deseja fazer?
-%s: Criar um novo arquivo
-%s: Utilizar um outro arquivo
-%s: Sair do programa''' % tuple(botoes)
-
-    botao = gui.menu(msg, botoes)
-
-    if botao == botoes[0]:
-        init()
-    elif botao == botoes[1]:
-        caminho = gui.escolher_arquivo('Escolha o arquivo desejado', 'cfg')
-        if caminho:
-            if gui.perguntar('O arquivo selecionado está fora do local padrão, ' +
-                         'de forma que o programa sempre perguntará por ele ' +
-                         'quando iniciar. Deseja copiar o arquivo para o local ' +
-                         'padrão?\n\nSe sim, você precisará fazer backup do arquivo ' +
-                         'sempre que for utilizá-lo em outro computador.'):
-                shutil.copy2(caminho, data.CONFIG)
-                gui.notificar('Arquivo copiado com sucesso!')
-            else:
-                data.CONFIG = caminho
-        else:
-            gui.notificar('Preciso do arquivo de configuração para continuar!')
-    else:
-        raise SystemExit(0)
-
-
 def debitar(atividade, parar=True):
     c = 'Cronômetro'
     op = gui.menu('Deseja iniciar o cronômetro ou inserir a quantidade ' +
@@ -177,13 +142,24 @@ def debitar(atividade, parar=True):
 
 def main():
     '''Rotina principal do programa.'''
+    configurou = False
     while True:
         data.Atividade.clear()
         try:
             toth, inicio, timestamp, acumular = data.parse_config()
             break
+        except data.ConfiguracaoAusente:
+            # Sem configuração o programa vai direto ao questionário inicial: não
+            # há procura, seleção nem cópia de arquivo a oferecer.
+            if configurou:
+                raise
+            configurou = True
+            init()
         except data.ArquivoError as e:
-            menu_cfg(str(e))
+            # Armazenamento corrompido não vira primeira execução, porque isso
+            # sobrescreveria dados que o usuário ainda pode querer recuperar.
+            gui.notificar(str(e))
+            raise SystemExit(1)
 
     while True:
         if (not timestamp) or (datetime.date.today() > timestamp):
