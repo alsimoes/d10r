@@ -1,6 +1,5 @@
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QLineEdit, QSpinBox, QDialog, QCheckBox, QHBoxLayout, QListWidget, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QLabel, QPushButton, QLineEdit, QSpinBox, QDialog, QCheckBox, QHBoxLayout, QListWidget, QFileDialog, QMessageBox, QInputDialog
 from PySide6.QtCore import QTimer
-import sys
 from utils import Cronometro, formatah
 
 def parse_time_str_to_hours(time_str):
@@ -16,27 +15,14 @@ def parse_time_str_to_hours(time_str):
     except (ValueError, IndexError):
         return 0.0
 
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle('d10r - Gerenciador de Atividades')
-        self.setGeometry(100, 100, 400, 300)
-        central_widget = QWidget()
-        layout = QVBoxLayout()
-        # Exemplo de label
-        self.label = QLabel('Decorrido/Saldo:')
-        layout.addWidget(self.label)
-        # Exemplo de entrada
-        self.entry = QLineEdit()
-        layout.addWidget(self.entry)
-        # Exemplo de spinbox
-        self.spin = QSpinBox()
-        layout.addWidget(self.spin)
-        # Exemplo de botão
-        self.button = QPushButton('Iniciar')
-        layout.addWidget(self.button)
-        central_widget.setLayout(layout)
-        self.setCentralWidget(central_widget)
+def formata_saldo(horas):
+    '''formata_saldo(horas) -> 'HH:MM' ou '-HH:MM'
+
+    Rótulo de saldo do cronômetro: horas positivas sem sinal e negativas com
+    "-" (formatah com sinal=False removeria também o "-").'''
+    if horas < 0:
+        return formatah(horas)
+    return formatah(horas, sinal=False)
 
 class CronometroDialogQt(QDialog):
     '''Janela do cronômetro. Com parar=True, a contagem termina sozinha ao
@@ -53,7 +39,7 @@ class CronometroDialogQt(QDialog):
         layout.addWidget(self.label)
         self.tempoDecorridoLbl = QLabel('00:00:00')
         layout.addWidget(self.tempoDecorridoLbl)
-        self.tempoSaldoLbl = QLabel('/ ' + formatah(saldo_num))
+        self.tempoSaldoLbl = QLabel('/ ' + formata_saldo(saldo_num))
         layout.addWidget(self.tempoSaldoLbl)
         self.pausarBtn = QCheckBox('Pausar')
         layout.addWidget(self.pausarBtn)
@@ -186,7 +172,7 @@ class ChoiceBoxQt(QDialog):
         self.listbox = QListWidget()
         for choice in choices:
             self.listbox.addItem(str(choice))
-        # Como no easygui original, a primeira opção já vem selecionada
+        # A primeira opção já vem selecionada, como no comportamento anterior.
         if self.listbox.count():
             self.listbox.setCurrentRow(0)
         layout.addWidget(self.listbox)
@@ -206,7 +192,7 @@ class ChoiceBoxQt(QDialog):
 class ButtonBoxQt(QDialog):
     '''Mensagem com um botão para cada opção; get() devolve a opção clicada.
 
-    Como no easygui original, a janela não fecha sem que um botão seja
+    A janela não fecha sem que um botão seja
     escolhido: Esc e o botão "X" são ignorados.'''
     def __init__(self, title, msg, choices):
         super().__init__()
@@ -264,6 +250,45 @@ class TextEntryBoxQt(QDialog):
     def get(self):
         return self.entry.text()
 
+# Wrappers de diálogo usados pela facade gui.py. Mantêm as assinaturas
+# observáveis da camada de interface anterior, mas usam apenas widgets PySide6.
+
+def msgbox(msg, title):
+    return QMessageBox.information(None, title, msg)
+
+
+def ynbox(msg, title):
+    dialog = ButtonBoxQt(title, msg, ('Sim', 'Não'))
+    return dialog.exec() and dialog.get() == 'Sim'
+
+
+def integerbox(msg, title, argUpperBound=168):
+    valor, aceito = QInputDialog.getInt(
+        None, title, msg, 0, 0, argUpperBound, 1,
+    )
+    return valor if aceito else None
+
+
+def enterbox(msg, title, default=''):
+    valor, aceito = QInputDialog.getText(None, title, msg, text=default)
+    return valor if aceito else None
+
+
+def choicebox(msg, title, choices):
+    dialog = ChoiceBoxQt(title, msg, choices)
+    return dialog.get() if dialog.exec() else None
+
+
+def buttonbox(msg, title, choices):
+    dialog = ButtonBoxQt(title, msg, choices)
+    return dialog.get() if dialog.exec() else None
+
+
+def fileopenbox(msg, title, default='*'):
+    caminho, _ = QFileDialog.getOpenFileName(None, title, '', default)
+    return caminho or None
+
+
 # Funções utilitárias para seleção de arquivo e mensagem
 
 def file_open_dialog(title, filetypes=None):
@@ -277,48 +302,3 @@ def file_open_dialog(title, filetypes=None):
 
 def show_message(title, msg):
     QMessageBox.information(None, title, msg)
-
-if __name__ == '__main__':
-    import sys
-    from PySide6.QtWidgets import QApplication
-    app = QApplication(sys.argv)
-
-    # Teste janela principal
-    window = MainWindow()
-    window.show()
-
-    # Teste diálogo de cronômetro (mock)
-    # class AtividadeMock:
-    #     nome = 'Teste'
-    #     saldo = '01:00:00'
-    # dlg = CronometroDialogQt(AtividadeMock())
-    # dlg.exec()
-
-    # Teste diálogo de hora
-    # dlg = HoraSpinDialogQt('Informe o tempo:')
-    # if dlg.exec():
-    #     print('Tempo:', dlg.get())
-
-    # Teste diálogo de prioridade
-    # dlg = PrioridadeDialogQt(['Atividade 1', 'Atividade 2', 'Atividade 3'])
-    # if dlg.exec():
-    #     print('Ordem:', dlg.get())
-
-    # Teste caixa de escolha
-    # dlg = ChoiceBoxQt('Escolha', 'Selecione uma opção:', ['A', 'B', 'C'])
-    # if dlg.exec():
-    #     print('Escolhido:', dlg.get())
-
-    # Teste entrada de texto
-    # dlg = TextEntryBoxQt('Entrada', 'Digite algo:')
-    # if dlg.exec():
-    #     print('Texto:', dlg.get())
-
-    # Teste seleção de arquivo
-    # arquivo = file_open_dialog('Selecione um arquivo')
-    # print('Arquivo:', arquivo)
-
-    # Teste mensagem
-    # show_message('Aviso', 'Teste de mensagem!')
-
-    sys.exit(app.exec())

@@ -74,28 +74,30 @@ class Atividade(metaclass=Collection):
 
 
 def parse_config():
-    '''parse_config() -> (toth, inicio, timestamp)
+    '''parse_config() -> (toth, inicio, timestamp, acumular)
     toth -> int
     inicio -> int
     timestamp -> datetime.date
+    acumular -> bool
 
     Analisa o arquivo em CONFIG e retorna o total de horas disponíveis, o dia da
-    semana de início da contagem (no formato ISO) e a data do último crédito de
-    horas, além de instanciar as atividades.'''
+    semana de início da contagem (no formato ISO), a data do último crédito de
+    horas e a opção de acumular, além de instanciar as atividades.'''
     parser = ConfigParser()
 
     try:
         with codecs.open(CONFIG, 'r', ENCODING) as config_file:
             parser.read_file(config_file)
-    except (OSError, UnicodeError):
+    except OSError:
         raise ArquivoError('Nenhum arquivo de configuração encontrado.')
-    except (ConfigParserError, ValueError):
+    except (UnicodeError, ConfigParserError, ValueError):
         raise ArquivoError('Arquivo de configuração corrompido.')
 
     try:
         toth = parser.getint(HEADER, 'disponivel')
         inicio = parser.getint(HEADER, 'inicio')
         timestamp = parser.getint(HEADER, 'timestamp')
+        acumular = parser.getboolean(HEADER, 'acumular', fallback=True)
 
         if timestamp:
             ano, timestamp = divmod(timestamp, 10000)
@@ -111,14 +113,15 @@ def parse_config():
         Atividade.clear()
         raise ArquivoError('Arquivo de configuração corrompido.')
 
-    return (toth, inicio, timestamp)
+    return (toth, inicio, timestamp, acumular)
 
 
-def salvar_config(toth, inicio, timestamp):
-    '''salvar_config(toth, inicio, timestamp)
+def salvar_config(toth, inicio, timestamp, acumular):
+    '''salvar_config(toth, inicio, timestamp, acumular)
     toth -> int
     inicio -> int
     timestamp -> datetime.date
+    acumular -> bool
 
     Atualiza CONFIG de forma análoga a função parse_config().'''
     if isinstance(timestamp, (datetime.date, datetime.datetime)):
@@ -145,14 +148,17 @@ def salvar_config(toth, inicio, timestamp):
     parser.set(HEADER, 'disponivel', str(toth))
     parser.set(HEADER, 'inicio', str(inicio))
     parser.set(HEADER, 'timestamp', str(timestamp))
+    parser.set(HEADER, 'acumular', str(acumular))
 
     cfg = codecs.open(CONFIG, 'w', ENCODING)
     parser.write(cfg)
 
 
-def creditar_tudo(toth, inicio, timestamp, hoje=None):
+def creditar_tudo(toth, inicio, timestamp, acumular, hoje=None):
     '''Verifica se existem horas a serem creditadas nas atividades e credita-as.
 
+    acumular define se todas as semanas em atraso devem ser creditadas; quando
+    falso, no máximo uma semana é creditada e saldos positivos são zerados.
     hoje permite informar a data atual (útil em testes); por padrão, usa
     datetime.date.today().'''
     if hoje is None:
@@ -166,7 +172,11 @@ def creditar_tudo(toth, inicio, timestamp, hoje=None):
         # timestamp, sendo que as horas daquele dia já foram creditadas, daí:
         if timestamp.isoweekday() == inicio:
             vezes -= 1
+        if vezes and not acumular:
+            vezes = 1
     for a in Atividade.all():
+        if vezes and not acumular and a.saldo > 0:
+            a.saldo = 0
         a.creditarh(toth, vezes)
 
     return bool(vezes)

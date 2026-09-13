@@ -10,8 +10,9 @@ Copyright (C) 2010  Ygor Mutti
 Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 '''
 
-import easygui as eg
-from gui_pyside import CronometroDialogQt, HoraSpinDialogQt, PrioridadeDialogQt
+from gui_pyside import (CronometroDialogQt, HoraSpinDialogQt,
+                         PrioridadeDialogQt, msgbox, ynbox, integerbox,
+                         enterbox, choicebox, buttonbox, fileopenbox)
 
 TITLE = 'd10r'
 
@@ -49,7 +50,7 @@ def prioridade_dialog(atividades):
 
 def notificar(msg):
     '''Exibe uma janela de diálogo com a mensagem em msg.'''
-    eg.msgbox(msg, TITLE)
+    msgbox(msg, TITLE)
 
 
 def perguntar(pergunta):
@@ -57,7 +58,7 @@ def perguntar(pergunta):
 
     Exibe uma janela com uma pergunta do tipo sim ou não e retorna a resposta
     como bool.'''
-    return bool(eg.ynbox(pergunta, TITLE))
+    return bool(ynbox(pergunta, TITLE))
 
 
 def entrar(msg, inteiro=False):
@@ -67,8 +68,8 @@ def entrar(msg, inteiro=False):
     usuário informe alguma string.'''
     if inteiro:
         # há 168h em uma semana
-        return eg.integerbox(msg, TITLE, argUpperBound=168)
-    return eg.enterbox(msg, TITLE)
+        return integerbox(msg, TITLE, argUpperBound=168)
+    return enterbox(msg, TITLE)
 
 
 def escolher(msg, opcoes):
@@ -76,7 +77,7 @@ def escolher(msg, opcoes):
 
     Exibe uma janela que permite que o usuário escolha uma dentre várias opções
     e retorna a opção escolhida.'''
-    return eg.choicebox(msg, TITLE, opcoes)
+    return choicebox(msg, TITLE, opcoes)
 
 
 def menu(msg, botoes):
@@ -84,7 +85,7 @@ def menu(msg, botoes):
 
     Exibe uma janela com uma mensagem e vários botões, retornando o texto
     contido no botão pressionado pelo usuário.'''
-    return eg.buttonbox(msg, TITLE, botoes)
+    return buttonbox(msg, TITLE, botoes)
 
 
 def escolher_arquivo(msg, extensao):
@@ -92,4 +93,4 @@ def escolher_arquivo(msg, extensao):
 
     Exibe uma janela para que o usuário escolha um arquivo e retorna o path
     completo para o arquivo escolhido.'''
-    return eg.fileopenbox(msg, TITLE, '*.' + extensao)
+    return fileopenbox(msg, TITLE, '*.' + extensao)

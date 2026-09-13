@@ -39,6 +39,12 @@ Para executar os testes em ambiente sem display (CI/headless):
 
 Também é possível validar a compilação com `python -m compileall -q .`.
 
+Na primeira execução, o programa pergunta se horas não cumpridas devem se
+acumular. O modo acumulativo credita todas as semanas em atraso; no modo não
+acumulativo, credita no máximo uma semana e zera apenas saldos positivos antes
+do crédito. A primeira execução sempre credita exatamente uma semana e salva a
+data do crédito.
+
 Faça o download do programa em:
 
 - http://github.com/mamutti/d10r/downloads

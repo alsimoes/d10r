@@ -1,5 +1,6 @@
 import pytest
 from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QDialog
 
 import gui
 import gui_pyside
@@ -98,3 +99,60 @@ def test_menu_retorna_texto_do_botao(qapp):
 def test_choicebox_preseleciona_primeira_opcao(qapp):
     dlg = gui_pyside.ChoiceBoxQt('d10r', 'Escolha', ['0- A', '1- B'])
     assert dlg.get() == '0- A'
+
+
+def test_dialogos_de_entrada_e_arquivo_preservam_retorno_e_cancelamento(
+        qapp, monkeypatch):
+    monkeypatch.setattr(gui_pyside.QInputDialog, 'getInt',
+                        lambda *args, **kwargs: (12, True))
+    assert gui_pyside.integerbox('Horas', 'd10r', argUpperBound=168) == 12
+    monkeypatch.setattr(gui_pyside.QInputDialog, 'getInt',
+                        lambda *args, **kwargs: (0, False))
+    assert gui_pyside.integerbox('Horas', 'd10r') is None
+
+    monkeypatch.setattr(gui_pyside.QInputDialog, 'getText',
+                        lambda *args, **kwargs: ('texto', True))
+    assert gui_pyside.enterbox('Nome', 'd10r') == 'texto'
+    monkeypatch.setattr(gui_pyside.QInputDialog, 'getText',
+                        lambda *args, **kwargs: ('', False))
+    assert gui_pyside.enterbox('Nome', 'd10r') is None
+
+    monkeypatch.setattr(gui_pyside.QFileDialog, 'getOpenFileName',
+                        lambda *args, **kwargs: ('/tmp/config.cfg', ''))
+    assert gui_pyside.fileopenbox('Arquivo', 'd10r', '*.cfg') == '/tmp/config.cfg'
+    monkeypatch.setattr(gui_pyside.QFileDialog, 'getOpenFileName',
+                        lambda *args, **kwargs: ('', ''))
+    assert gui_pyside.fileopenbox('Arquivo', 'd10r', '*.cfg') is None
+
+
+def test_msgbox_wrapper_delega_para_qmessagebox(qapp, monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(
+        gui_pyside.QMessageBox, 'information',
+        lambda *args: chamadas.append(args) or 'ok',
+    )
+    assert gui_pyside.msgbox('Mensagem', 'd10r') == 'ok'
+    assert chamadas[0][1:] == ('d10r', 'Mensagem')
+
+
+@pytest.mark.parametrize('dialog_cls, args, cancel_name', [
+    (gui_pyside.HoraSpinDialogQt, ('Informe:',), 'cancel_btn'),
+    (gui_pyside.PrioridadeDialogQt, (['A', 'B'],), 'cancel_btn'),
+    (gui_pyside.ChoiceBoxQt, ('d10r', 'Escolha', ['A', 'B']), 'cancel_btn'),
+    (gui_pyside.TextEntryBoxQt, ('d10r', 'Nome'), 'cancel_btn'),
+])
+def test_dialogos_cancelam_sem_retorno(qapp, dialog_cls, args, cancel_name):
+    dialog = dialog_cls(*args)
+    getattr(dialog, cancel_name).click()
+    assert dialog.result() == QDialog.DialogCode.Rejected
+
+
+@pytest.mark.parametrize('saldo, esperado', [
+    (1.5, '01:30'),   # positivo: sem '+'
+    (-1.5, '-01:30'), # negativo: '-' preservado
+    (0.0, '00:00'),
+])
+def test_rotulo_de_saldo_sem_mais_e_com_menos(qapp, saldo, esperado):
+    dlg = gui_pyside.CronometroDialogQt(AtividadeFake(saldo=saldo), parar=False)
+    dlg.done(0)
+    assert dlg.tempoSaldoLbl.text() == '/ ' + esperado
