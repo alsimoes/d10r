@@ -108,6 +108,7 @@ def parse_config():
                           'saldo':parser.getfloat(a, 'saldo')}
                 Atividade(**kwargs)
     except (TypeError, ValueError, ConfigParserError, NoSectionError):
+        Atividade.clear()
         raise ArquivoError('Arquivo de configuração corrompido.')
 
     return (toth, inicio, timestamp)

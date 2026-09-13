@@ -63,6 +63,28 @@ def test_parse_config_arquivo_ausente_ou_malformado(tmp_path, monkeypatch, conte
     with pytest.raises(ArquivoError):
         parse_config()
 
+def test_parse_config_secao_malformada_nao_deixa_atividades(tmp_path, monkeypatch):
+    config = tmp_path / 'config.cfg'
+    monkeypatch.setattr('data.CONFIG', str(config))
+    conteudo = (
+        '[__header__]\n'
+        'disponivel = 20\n'
+        'inicio = 1\n'
+        'timestamp = 20240101\n'
+        '\n'
+        '[Valida]\n'
+        'pts = 0.5\n'
+        'saldo = 10\n'
+        '\n'
+        '[Malformada]\n'
+        'pts = meio\n'
+        'saldo = 5\n'
+    )
+    config.write_text(conteudo, encoding='utf-8')
+    with pytest.raises(ArquivoError):
+        parse_config()
+    assert Atividade.all() == []
+
 def test_creditar_tudo():
     # Testa a função que credita horas para todas as atividades
     Atividade(nome="A1", pts=0.5, saldo=0)
