@@ -11,7 +11,7 @@ ________________________________________________________________________________
 
 § 1. O que é?
 
-O d10r é um programa multiplataforma feito em Python e Tkinter que permite que
+O d10r é um programa multiplataforma feito em Python e PySide6 que permite que
 você defina atividades, quanto tempo tem disponível para realizá-las e atribua
 prioridades a elas, de acordo com as suas respostas a um questionário.
 
@@ -21,7 +21,23 @@ ________________________________________________________________________________
 
 § 2. Como utilizar?
 
-É preciso ter o Python versão 2.6.x instalado e a biblioteca Tkinter (python-tk).
+É preciso ter Python 3.12 instalado.
+
+Para preparar um ambiente virtual e instalar as dependências:
+
+    python -m venv .venv
+    .venv\Scripts\python -m pip install -r requirements-dev.txt
+
+Para executar o programa:
+
+    .venv\Scripts\python d10r.py
+
+Para executar os testes em ambiente sem display (CI/headless):
+
+    $env:QT_QPA_PLATFORM = "offscreen"
+    .venv\Scripts\python -m pytest -q tests
+
+Também é possível validar a compilação com `python -m compileall -q .`.
 
 Faça o download do programa em:
 
