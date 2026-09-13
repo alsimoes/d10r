@@ -1,42 +1,24 @@
-# Roteiro de Testes Manuais PySide6
+# Testes PySide6
 
-## Objetivo
-Validar visualmente e funcionalmente todos os componentes e diálogos migrados para PySide6.
+## Suíte automatizada
 
-## Passos
+Os testes de GUI rodam sem servidor gráfico:
 
-1. **Janela Principal**
-   - Executar `python gui_pyside.py`.
-   - Verificar se a janela principal abre corretamente, com label, entrada, spinbox e botão.
+    $env:QT_QPA_PLATFORM = "offscreen"
+    .venv\Scripts\python -m pytest -q tests
 
-2. **Diálogo de Cronômetro**
-   - Descomentar o bloco de teste do `CronometroDialogQt`.
-   - Executar e validar exibição dos labels e botões.
+O CI instala as bibliotecas Qt do Ubuntu, executa a suíte completa e verifica
+`python -m compileall -q .`.
 
-3. **Diálogo de Hora**
-   - Descomentar o bloco de teste do `HoraSpinDialogQt`.
-   - Executar, preencher valores e validar retorno.
+## Cobertura dos diálogos
 
-4. **Diálogo de Prioridade**
-   - Descomentar o bloco de teste do `PrioridadeDialogQt`.
-   - Reordenar itens, clicar OK e validar retorno.
+- Cronômetro: finalização, pausa, limite de saldo e encerramento por X/Esc;
+- entrada de horas: valores e cancelamento;
+- prioridades: reordenação por Subir/Descer e cancelamento;
+- escolha: primeira opção pré-selecionada e cancelamento;
+- botões: retorno do botão e bloqueio de Esc/X sem escolha;
+- texto e inteiro: retorno, limite de inteiro e cancelamento;
+- arquivo e mensagem: retorno/cancelamento e delegação aos widgets PySide6.
 
-5. **Caixa de Escolha**
-   - Descomentar o bloco de teste do `ChoiceBoxQt`.
-   - Selecionar opção e validar retorno.
-
-6. **Entrada de Texto**
-   - Descomentar o bloco de teste do `TextEntryBoxQt`.
-   - Digitar texto e validar retorno.
-
-7. **Seleção de Arquivo**
-   - Descomentar o bloco de teste do `file_open_dialog`.
-   - Selecionar arquivo e validar retorno.
-
-8. **Mensagem**
-   - Descomentar o bloco de teste do `show_message`.
-   - Validar exibição da mensagem.
-
-## Observações
-- Se algum componente não funcionar, registrar o erro para correção.
-- Após validação manual, seguir para testes automatizados.
+Para uma verificação manual, execute o fluxo principal com `python d10r.py` em
+um ambiente com display e confirme os botões, mensagens e escolhas acima.
