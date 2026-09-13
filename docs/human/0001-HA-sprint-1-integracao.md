@@ -7,7 +7,8 @@ Este runbook descreve as ações que devem ser executadas pelo responsável huma
 - A revisão final do Sprint 1 está aprovada em `sprint-1-final-review`.
 - A worktree dos agentes está limpa.
 - Nenhuma operação remota ou destrutiva foi executada pelos agentes.
-- O responsável humano confirmou a política de integração e o destino correto da branch.
+- O responsável humano confirmou que o único destino válido é o fork `alsimoes/d10r`.
+- O remoto `upstream` (`ygormutti/d10r`) é somente referência histórica e nunca deve receber push, PR ou merge.
 
 ## Passo a passo
 
@@ -17,7 +18,10 @@ Este runbook descreve as ações que devem ser executadas pelo responsável huma
    - `git log --oneline --decorate -n 12`
    - `git branch --show-current`
 3. Confirme que os commits da entrega estão presentes, incluindo a remediação `e63800e`.
-4. Confirme que a branch de integração e o destino remoto estão corretos; não prossiga se houver divergência não compreendida.
+4. Confirme que a branch de integração e os remotos estão corretos:
+   - `origin` deve apontar para `https://github.com/alsimoes/d10r.git`.
+   - `upstream` pode apontar para `https://github.com/ygormutti/d10r.git`, mas é somente leitura.
+   - Não prossiga se `origin` não for `alsimoes/d10r` ou se houver divergência não compreendida.
 5. Execute a suíte final localmente, se desejar uma última verificação independente:
    - `$env:QT_QPA_PLATFORM = "offscreen"`
    - `python -m pytest -q tests`
@@ -30,14 +34,19 @@ Este runbook descreve as ações que devem ser executadas pelo responsável huma
    - Mensagem sugerida: `docs(human): add Sprint 1 integration runbook`
    - `git commit -m "docs(human): add Sprint 1 integration runbook"`
    - Se o runbook já estiver incluído em outro commit, não crie um commit duplicado.
-7. Faça push somente da branch aprovada, usando a política de revisão do projeto:
+7. Faça push somente para o fork `alsimoes/d10r`, usando a política de revisão do projeto:
    - Confirme novamente a branch: `git branch --show-current`.
-   - Substitua `<remoto>` e `<branch-aprovada>` pelos valores confirmados pelo responsável humano.
-   - `git push <remoto> <branch-aprovada>`
-   - Verifique o resultado com `git status --short` e a página do remoto.
+   - Confirme o remoto de destino: `git remote get-url origin`.
+   - O resultado deve ser `https://github.com/alsimoes/d10r.git`.
+   - Substitua `<branch-aprovada>` pelo nome confirmado pelo responsável humano.
+   - `git push origin <branch-aprovada>`
+   - Verifique o resultado com `git status --short` e a página do fork `alsimoes/d10r`.
    - Não use `--force` sem autorização explícita e uma justificativa registrada.
+   - Nunca execute `git push upstream ...`.
 8. Abra ou atualize o pull request para o destino definido pelo responsável humano:
-   - Origem: `<branch-aprovada>`; destino: `<branch-destino-confirmada>`.
+   - O PR deve ser criado exclusivamente no repositório `alsimoes/d10r`.
+   - Origem: `<branch-aprovada>`; destino: `<branch-destino-confirmada>` dentro de `alsimoes/d10r`.
+   - Nunca abra PR para `ygormutti/d10r`.
    - Título sugerido: `Sprint 1: estabilizar baseline Python 3 + PySide6`.
    - Texto sugerido:
 
@@ -84,12 +93,12 @@ Este runbook descreve as ações que devem ser executadas pelo responsável huma
      Commit integrado: <hash>
      ```
 
-   - Atualize o status da issue somente após confirmar que o PR foi integrado.
+   - Atualize somente issues do repositório `alsimoes/d10r`, após confirmar que o PR foi integrado.
 11. Só depois de confirmar que não há necessidade de rollback, remova branches locais ou remotas obsoletas, se isso fizer parte da política do projeto:
    - Verifique o PR integrado, o hash na branch de destino e a ausência de rollback pendente.
    - Liste antes de remover: `git branch --list` e `git branch -r`.
    - Para remover uma branch local já integrada: `git branch -d <branch-obsoleta>`.
-   - Para remover uma branch remota, confirme explicitamente a autorização e o alvo: `git push <remoto> --delete <branch-obsoleta>`.
+   - Para remover uma branch remota do fork, confirme explicitamente a autorização e o alvo: `git push origin --delete <branch-obsoleta>`.
    - Nunca use `-D` ou delete remoto por conveniência; preserve branches se houver dúvida.
 12. Registre neste arquivo ou no registro de entrega a data, o responsável, o pull request e o commit efetivamente integrado:
    - Preencha todos os campos da seção “Registro da execução”.
@@ -101,6 +110,8 @@ Este runbook descreve as ações que devem ser executadas pelo responsável huma
 
 - Não incluir o modo acumulativo ou SQLite nesta integração.
 - Não fazer push, merge, fechar issues ou excluir branches antes de confirmar o destino e a revisão humana.
+- O único repositório autorizado é `alsimoes/d10r`; `ygormutti/d10r` nunca recebe push, PR, merge ou issue.
+- O remoto `upstream` deve ser tratado como somente leitura; comandos de escrita devem usar exclusivamente `origin`.
 - Não usar comandos destrutivos sem verificar o alvo exato e a possibilidade de recuperação.
 - Substituir todos os placeholders (`<...>`) antes de executar comandos ou publicar textos.
 - Se o estado remoto divergir do esperado, parar e registrar a divergência para decisão humana.
