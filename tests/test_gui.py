@@ -98,3 +98,14 @@ def test_menu_retorna_texto_do_botao(qapp):
 def test_choicebox_preseleciona_primeira_opcao(qapp):
     dlg = gui_pyside.ChoiceBoxQt('d10r', 'Escolha', ['0- A', '1- B'])
     assert dlg.get() == '0- A'
+
+
+@pytest.mark.parametrize('saldo, esperado', [
+    (1.5, '01:30'),   # positivo: sem '+'
+    (-1.5, '-01:30'), # negativo: '-' preservado
+    (0.0, '00:00'),
+])
+def test_rotulo_de_saldo_sem_mais_e_com_menos(qapp, saldo, esperado):
+    dlg = gui_pyside.CronometroDialogQt(AtividadeFake(saldo=saldo), parar=False)
+    dlg.done(0)
+    assert dlg.tempoSaldoLbl.text() == '/ ' + esperado

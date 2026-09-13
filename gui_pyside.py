@@ -16,6 +16,15 @@ def parse_time_str_to_hours(time_str):
     except (ValueError, IndexError):
         return 0.0
 
+def formata_saldo(horas):
+    '''formata_saldo(horas) -> 'HH:MM' ou '-HH:MM'
+
+    Rótulo de saldo do cronômetro: horas positivas sem sinal e negativas com
+    "-" (formatah com sinal=False removeria também o "-").'''
+    if horas < 0:
+        return formatah(horas)
+    return formatah(horas, sinal=False)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -53,7 +62,7 @@ class CronometroDialogQt(QDialog):
         layout.addWidget(self.label)
         self.tempoDecorridoLbl = QLabel('00:00:00')
         layout.addWidget(self.tempoDecorridoLbl)
-        self.tempoSaldoLbl = QLabel('/ ' + formatah(saldo_num))
+        self.tempoSaldoLbl = QLabel('/ ' + formata_saldo(saldo_num))
         layout.addWidget(self.tempoSaldoLbl)
         self.pausarBtn = QCheckBox('Pausar')
         layout.addWidget(self.pausarBtn)
