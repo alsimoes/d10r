@@ -1,6 +1,6 @@
 import pytest
 import datetime
-from data import Atividade, salvar_config, parse_config, creditar_tudo
+from data import ArquivoError, Atividade, salvar_config, parse_config, creditar_tudo
 
 # Fixture para limpar as atividades antes de cada teste
 @pytest.fixture(autouse=True)
@@ -52,6 +52,16 @@ def test_salvar_e_parse_config(tmp_path, monkeypatch):
     trabalho = next(a for a in atividades_lidas if a.nome == "Trabalho")
     assert trabalho.pts == 0.6
     assert trabalho.saldo == 10
+
+
+@pytest.mark.parametrize('conteudo', ['', '[invalido'])
+def test_parse_config_arquivo_ausente_ou_malformado(tmp_path, monkeypatch, conteudo):
+    config = tmp_path / 'config.cfg'
+    monkeypatch.setattr('data.CONFIG', str(config))
+    if conteudo:
+        config.write_text(conteudo, encoding='utf-8')
+    with pytest.raises(ArquivoError):
+        parse_config()
 
 def test_creditar_tudo():
     # Testa a função que credita horas para todas as atividades

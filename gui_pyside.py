@@ -84,6 +84,8 @@ class CronometroDialogQt(QDialog):
         # thread pare e o tempo decorrido seja registrado em qualquer caso.
         self.timer.stop()
         self.cronometro.parar()
+        if self.cronometro.is_alive():
+            self.cronometro.join(timeout=1.0)
         self.decorrido_final = self.cronometro.decorridoh
         super().done(resultado)
 

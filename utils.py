@@ -91,21 +91,24 @@ class Cronometro(threading.Thread):
         self._pausado = False
         self._parado = False
         self._fim_alcancado = False
+        self._stop_event = threading.Event()
     def run(self):
         while True:
             if self.fim is not None and self.decorrido >= self.fim:
                 self._decorrido = self.fim
                 self._fim_alcancado = True
                 self.parar()
-            if self._parado:
+            if self._stop_event.is_set():
                 break
-            time.sleep(1)
+            if self._stop_event.wait(1):
+                break
             if not self._pausado:
                 self._decorrido += 1
     def pausar(self):
         self._pausado = not self._pausado
     def parar(self):
         self._parado = True
+        self._stop_event.set()
     @property
     def decorrido(self):
         return self._decorrido
