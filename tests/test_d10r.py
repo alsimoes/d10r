@@ -31,9 +31,30 @@ def test_calcula_prioridades():
     assert len(prioridades) == 4
 
 
+def test_init_credita_primeira_execucao_e_grava_data(monkeypatch):
+    hoje = __import__('datetime').date.today()
+    creditos = []
+    salvos = []
+    monkeypatch.setattr(d10r.gui, 'notificar', lambda *args: None)
+    monkeypatch.setattr(d10r, 'ler_atividades', lambda: {'A', 'B'})
+    monkeypatch.setattr(d10r.gui, 'prioridade_dialog',
+                        lambda atividades: ['A', 'B'])
+    monkeypatch.setattr(d10r.gui, 'entrar', lambda *args: 10)
+    monkeypatch.setattr(d10r.gui, 'perguntar', lambda *args: False)
+    monkeypatch.setattr(data, 'creditar_tudo',
+                        lambda *args: creditos.append(args))
+    monkeypatch.setattr(data, 'salvar_config',
+                        lambda *args: salvos.append(args))
+
+    d10r.init()
+
+    assert creditos == [(10, hoje.isoweekday(), 0, False)]
+    assert salvos == [(10, hoje.isoweekday(), hoje, False)]
+
+
 def test_cancelar_escolha_encerra_e_salva(monkeypatch):
     atividade = AtividadeFake()
-    monkeypatch.setattr(data, 'parse_config', lambda: (8, 1, 0))
+    monkeypatch.setattr(data, 'parse_config', lambda: (8, 1, 0, True))
     monkeypatch.setattr(data, 'creditar_tudo', lambda *args, **kwargs: False)
     monkeypatch.setattr(data.Atividade, 'all', classmethod(lambda cls: [atividade]))
     monkeypatch.setattr(d10r, 'escolher_ativ', lambda: None)
@@ -56,7 +77,7 @@ def test_recusar_confirmacao_preserva_saldo(monkeypatch):
     escolhas = iter([atividade, None])
     perguntas = iter([False])
     salvo = []
-    monkeypatch.setattr(data, 'parse_config', lambda: (8, 1, 0))
+    monkeypatch.setattr(data, 'parse_config', lambda: (8, 1, 0, True))
     monkeypatch.setattr(data, 'creditar_tudo', lambda *args, **kwargs: False)
     monkeypatch.setattr(d10r, 'escolher_ativ', lambda: next(escolhas))
     monkeypatch.setattr(d10r, 'debitar', lambda *args: 1.0)

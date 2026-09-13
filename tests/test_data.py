@@ -32,18 +32,19 @@ def test_salvar_e_parse_config(tmp_path, monkeypatch):
     timestamp = datetime.date(2024, 1, 1)
 
     # Salva a configuração
-    salvar_config(toth, inicio, timestamp)
+    salvar_config(toth, inicio, timestamp, False)
 
     # Limpa as atividades da memória para forçar a leitura do arquivo
     Atividade.clear()
     
     # Lê a configuração
-    parsed_toth, parsed_inicio, parsed_timestamp = parse_config()
+    parsed_toth, parsed_inicio, parsed_timestamp, parsed_acumular = parse_config()
 
     # Verifica se os dados foram lidos corretamente
     assert parsed_toth == toth
     assert parsed_inicio == inicio
     assert parsed_timestamp == timestamp
+    assert parsed_acumular is False
 
     atividades_lidas = Atividade.all()
     assert len(atividades_lidas) == 2
@@ -92,20 +93,34 @@ def test_parse_config_secao_malformada_nao_deixa_atividades(tmp_path, monkeypatc
         parse_config()
     assert Atividade.all() == []
 
-def test_creditar_tudo():
+def test_parse_config_legado_sem_acumular_usa_fallback_true(tmp_path, monkeypatch):
+    config = tmp_path / 'config.cfg'
+    monkeypatch.setattr('data.CONFIG', str(config))
+    config.write_text(
+        '[__header__]\n'
+        'disponivel = 20\n'
+        'inicio = 1\n'
+        'timestamp = 20240101\n',
+        encoding='utf-8',
+    )
+    assert parse_config() == (20, 1, datetime.date(2024, 1, 1), True)
+
+
+@pytest.mark.parametrize('acumular', [True, False])
+def test_creditar_tudo_primeira_execucao_credita_exatamente_uma_vez(acumular):
     # Testa a função que credita horas para todas as atividades
     Atividade(nome="A1", pts=0.5, saldo=0)
     Atividade(nome="A2", pts=0.5, saldo=2)
     
     # Simula a primeira execução
-    creditar_tudo(toth=10, inicio=1, timestamp=0)
+    creditar_tudo(toth=10, inicio=1, timestamp=0, acumular=acumular)
     
     atividades = Atividade.all()
     a1 = next(a for a in atividades if a.nome == "A1")
     a2 = next(a for a in atividades if a.nome == "A2")
 
     assert a1.saldo == 5.0 # 50% de 10
-    assert a2.saldo == 7.0 # 2 (saldo inicial) + 5
+    assert a2.saldo == (7.0 if acumular else 5.0)
 
 
 @pytest.mark.parametrize('timestamp, hoje, esperado', [
@@ -120,7 +135,8 @@ def test_creditar_tudo():
 ])
 def test_creditar_tudo_semanas(timestamp, hoje, esperado):
     Atividade(nome='A1', pts=0.5, saldo=0)
-    creditou = creditar_tudo(toth=10, inicio=1, timestamp=timestamp, hoje=hoje)
+    creditou = creditar_tudo(toth=10, inicio=1, timestamp=timestamp,
+                             acumular=True, hoje=hoje)
     assert creditou is bool(esperado)
     assert Atividade.all()[0].saldo == 5.0 * esperado
 
@@ -138,5 +154,34 @@ def test_creditar_tudo_confere_com_contagem_ingenua():
                     if (timestamp + datetime.timedelta(k)).isoweekday() == inicio)
                 Atividade.clear()
                 Atividade(nome='A1', pts=1.0, saldo=0)
-                creditar_tudo(toth=1, inicio=inicio, timestamp=timestamp, hoje=hoje)
+                creditar_tudo(toth=1, inicio=inicio, timestamp=timestamp,
+                              acumular=True, hoje=hoje)
                 assert Atividade.all()[0].saldo == esperado, (inicio, timestamp, hoje)
+
+
+def test_creditar_tudo_nao_acumulativo_limita_atraso_a_uma_semana():
+    Atividade(nome='A1', pts=0.5, saldo=0)
+    creditou = creditar_tudo(
+        toth=10, inicio=1, timestamp=datetime.date(2024, 1, 1),
+        acumular=False, hoje=datetime.date(2024, 1, 22),
+    )
+    assert creditou is True
+    assert Atividade.all()[0].saldo == 5.0
+
+
+def test_creditar_tudo_nao_acumulativo_zera_saldo_positivo_antes_de_creditar():
+    Atividade(nome='A1', pts=0.5, saldo=3)
+    creditar_tudo(
+        toth=10, inicio=1, timestamp=datetime.date(2024, 1, 1),
+        acumular=False, hoje=datetime.date(2024, 1, 8),
+    )
+    assert Atividade.all()[0].saldo == 5.0
+
+
+def test_creditar_tudo_nao_acumulativo_preserva_saldo_negativo():
+    Atividade(nome='A1', pts=0.5, saldo=-3)
+    creditar_tudo(
+        toth=10, inicio=1, timestamp=datetime.date(2024, 1, 1),
+        acumular=False, hoje=datetime.date(2024, 1, 8),
+    )
+    assert Atividade.all()[0].saldo == 2.0
