@@ -4,9 +4,11 @@ Nenhum teste deste arquivo toca o perfil real do usuário: todo banco vive em
 `tmp_path` e todo caminho é injetado explicitamente.
 '''
 
+import contextlib
 import datetime
 import math
 import os
+import sqlite3
 import subprocess
 import sys
 
@@ -34,6 +36,36 @@ def store(db_path):
     loja = SQLiteStore(db_path)
     loja.bootstrap_v1()
     return loja
+
+
+@pytest.fixture
+def snapshot():
+    '''Snapshot completo: Unicode, saldo negativo e data de crédito.'''
+    return ConfigSnapshot(
+        toth=20,
+        inicio=3,
+        last_credit_date=datetime.date(2024, 1, 1),
+        acumular=False,
+        activities=(
+            ActivitySnapshot(name='Café ☕', pts=0.6, saldo=-999.5),
+            ActivitySnapshot(name='Programação', pts=0.4, saldo=10.25),
+        ),
+    )
+
+
+@pytest.fixture
+def store_configurado(store, snapshot):
+    '''Armazenamento com um snapshot já gravado.'''
+    store.save_snapshot(snapshot)
+    return store
+
+
+def sql_bruto(caminho, *comandos):
+    '''Executa SQL direto, para fabricar estados que a API nunca produziria.'''
+    with contextlib.closing(sqlite3.connect(str(caminho))) as conexao:
+        for comando in comandos:
+            conexao.execute(comando)
+        conexao.commit()
 
 
 # --- Snapshots (DTOs) ------------------------------------------------------
@@ -420,3 +452,468 @@ def test_snapshot_admite_valores_numericos_de_fronteira():
                                      saldo=-1.7976931348623157e+308),),
     )
     assert math.isfinite(grande.activities[0].saldo)
+
+
+# --- integrity_check -------------------------------------------------------
+
+def test_integrity_check_aprova_banco_v1_recem_criado(store):
+    # Falta de configuração não é corrupção.
+    assert store.integrity_check() is None
+    assert store.load_snapshot() is UNCONFIGURED
+
+
+def test_integrity_check_aprova_banco_configurado(store_configurado):
+    assert store_configurado.integrity_check() is None
+
+
+# --- Round-trip ------------------------------------------------------------
+
+def test_round_trip_preserva_o_snapshot_inteiro(store, snapshot):
+    store.save_snapshot(snapshot)
+    assert store.load_snapshot() == snapshot
+
+
+def test_round_trip_preserva_unicode_e_saldo_negativo(store_configurado, snapshot):
+    lido = store_configurado.load_snapshot()
+    assert [a.name for a in lido.activities] == ['Café ☕', 'Programação']
+    assert lido.activities[0].saldo == -999.5
+
+
+@pytest.mark.parametrize('quantidade', [0, 1, 5])
+def test_round_trip_com_zero_uma_e_n_atividades(store, quantidade):
+    entrada = ConfigSnapshot(
+        toth=40, inicio=1, acumular=True,
+        activities=tuple(ActivitySnapshot(name='A%d' % i, pts=0.1 * i, saldo=float(i))
+                         for i in range(quantidade)),
+    )
+    store.save_snapshot(entrada)
+    lido = store.load_snapshot()
+    assert lido == entrada
+    assert len(lido.activities) == quantidade
+
+
+def test_round_trip_preserva_last_credit_date_nulo(store):
+    # NULL continua NULL aqui; a conversão para o `timestamp = 0` público é da
+    # facade, no ticket 05.
+    entrada = ConfigSnapshot(toth=20, inicio=1, acumular=True,
+                             activities=(ActivitySnapshot(name='A1', pts=1.0,
+                                                          saldo=0.0),))
+    store.save_snapshot(entrada)
+    lido = store.load_snapshot()
+    assert lido.last_credit_date is None
+    assert lido == entrada
+
+
+@pytest.mark.parametrize('acumular', [True, False])
+def test_round_trip_preserva_acumular(store, acumular):
+    store.save_snapshot(ConfigSnapshot(toth=20, inicio=1, acumular=acumular))
+    assert store.load_snapshot().acumular is acumular
+
+
+@pytest.mark.parametrize('inicio', [1, 4, 7])
+def test_round_trip_preserva_inicio_em_todo_o_intervalo(store, inicio):
+    store.save_snapshot(ConfigSnapshot(toth=20, inicio=inicio, acumular=True))
+    assert store.load_snapshot().inicio == inicio
+
+
+def test_round_trip_preserva_a_ordem_das_atividades(store):
+    # A ordem da lista é a ordem de prioridade que o usuário montou com
+    # Subir/Descer; embaralhá-la seria regressão visível.
+    nomes = ['Zelar', 'Aprender', 'Malhar', 'Beta', 'Alfa']
+    store.save_snapshot(ConfigSnapshot(
+        toth=20, inicio=1, acumular=True,
+        activities=tuple(ActivitySnapshot(name=n, pts=0.2, saldo=0.0)
+                         for n in nomes),
+    ))
+    assert [a.name for a in store.load_snapshot().activities] == nomes
+
+
+# --- Atualização e remoção -------------------------------------------------
+
+def test_save_snapshot_configura_um_banco_v1_vazio(store, snapshot):
+    assert store.is_configured() is False
+    store.save_snapshot(snapshot)
+    assert store.is_configured() is True
+    assert store.load_snapshot() == snapshot
+
+
+def test_save_snapshot_substitui_o_conjunto_de_atividades(store_configurado):
+    novo = ConfigSnapshot(
+        toth=30, inicio=5, last_credit_date=datetime.date(2025, 6, 2),
+        acumular=True,
+        activities=(ActivitySnapshot(name='Dormir', pts=1.0, saldo=2.0),),
+    )
+    store_configurado.save_snapshot(novo)
+
+    lido = store_configurado.load_snapshot()
+    assert lido == novo
+    assert [a.name for a in lido.activities] == ['Dormir']
+
+
+def test_save_snapshot_reaproveita_nomes_sem_violar_o_indice_unico(store_configurado,
+                                                                  snapshot):
+    # Renomear/atualizar mantendo os mesmos nomes é o caso em que o índice único
+    # de `name` quebraria se a substituição inserisse antes de remover.
+    atualizado = snapshot.model_copy(update={'activities': tuple(
+        ActivitySnapshot(name=a.name, pts=a.pts, saldo=a.saldo + 1.0)
+        for a in snapshot.activities)})
+    store_configurado.save_snapshot(atualizado)
+
+    lido = store_configurado.load_snapshot()
+    assert [a.name for a in lido.activities] == [a.name for a in snapshot.activities]
+    assert [a.saldo for a in lido.activities] == [-998.5, 11.25]
+
+
+def test_save_snapshot_remove_todas_as_atividades(store_configurado):
+    store_configurado.save_snapshot(
+        ConfigSnapshot(toth=20, inicio=1, acumular=True, activities=()))
+
+    assert store_configurado.load_snapshot().activities == ()
+    engine = storage.create_engine_for(store_configurado.path)
+    try:
+        with Session(engine) as sessao:
+            assert sessao.exec(select(ActivityRow)).all() == []
+    finally:
+        engine.dispose()
+
+
+def test_save_snapshot_nao_duplica_o_singleton(store_configurado, snapshot):
+    store_configurado.save_snapshot(snapshot.model_copy(update={'toth': 99}))
+
+    engine = storage.create_engine_for(store_configurado.path)
+    try:
+        with Session(engine) as sessao:
+            configs = sessao.exec(select(AppConfigRow)).all()
+            assert [(c.id, c.toth) for c in configs] == [(1, 99)]
+            versoes = sessao.exec(select(SchemaVersionRow)).all()
+            assert [(v.id, v.version) for v in versoes] == [(1, 1)]
+    finally:
+        engine.dispose()
+
+
+def test_save_snapshot_recusa_objeto_que_nao_e_snapshot(store):
+    for invalido in ({'toth': 20}, None, 'snapshot'):
+        with pytest.raises(StorageError, match='ConfigSnapshot'):
+            store.save_snapshot(invalido)
+    assert store.is_configured() is False
+
+
+# --- Rollback --------------------------------------------------------------
+
+SNAPSHOT_INTRUSO = ConfigSnapshot(
+    toth=999, inicio=7, acumular=True,
+    activities=(ActivitySnapshot(name='Intruso', pts=1.0, saldo=42.0),),
+)
+
+
+@pytest.fixture(params=['no-commit', 'no-meio-da-transacao'])
+def gravacao_que_falha(request, monkeypatch):
+    '''Injeta a falha em dois pontos distintos da gravação.
+
+    `no-commit` deixa o flush emitir DELETE e INSERTs e só então falha.
+    `no-meio-da-transacao` falha depois de o DELETE das atividades já ter sido
+    enviado ao banco, mas antes do commit — é a injeção que distingue uma
+    transação única de uma sequência de commits parciais. A carga do ORM não
+    passa por `__init__`, então a releitura seguinte continua funcionando.'''
+    if request.param == 'no-commit':
+        class SessaoQuebrada(storage.Session):
+            def commit(self):
+                self.flush()
+                raise RuntimeError('commit indisponível')
+
+        monkeypatch.setattr(storage, 'Session', SessaoQuebrada)
+    else:
+        def init_quebrado(self, **kwargs):
+            raise RuntimeError('linha inválida')
+
+        monkeypatch.setattr(storage.ActivityRow, '__init__', init_quebrado)
+    return request.param
+
+
+def test_save_snapshot_preserva_o_snapshot_anterior_quando_falha(
+        store_configurado, snapshot, gravacao_que_falha):
+    with pytest.raises(StorageError, match='gravar'):
+        store_configurado.save_snapshot(SNAPSHOT_INTRUSO)
+
+    # Nada da tentativa sobrevive, nem mesmo as remoções já enviadas ao banco.
+    assert store_configurado.load_snapshot() == snapshot
+
+
+def test_save_snapshot_falho_nao_deixa_atividade_parcial(store_configurado,
+                                                         gravacao_que_falha):
+    with pytest.raises(StorageError):
+        store_configurado.save_snapshot(SNAPSHOT_INTRUSO)
+
+    engine = storage.create_engine_for(store_configurado.path)
+    try:
+        with Session(engine) as sessao:
+            nomes = [linha.name for linha in sessao.exec(select(ActivityRow))]
+    finally:
+        engine.dispose()
+    assert nomes == ['Café ☕', 'Programação']
+    assert 'Intruso' not in nomes
+
+
+def test_save_snapshot_falho_nao_altera_o_singleton(store_configurado, snapshot,
+                                                    gravacao_que_falha):
+    with pytest.raises(StorageError):
+        store_configurado.save_snapshot(SNAPSHOT_INTRUSO)
+
+    with contextlib.closing(sqlite3.connect(str(store_configurado.path))) as conexao:
+        assert conexao.execute('SELECT toth, inicio FROM app_config').fetchall() \
+               == [(snapshot.toth, snapshot.inicio)]
+
+
+def test_falha_de_gravacao_preserva_a_causa_original(store_configurado,
+                                                    gravacao_que_falha):
+    with pytest.raises(StorageError) as erro:
+        store_configurado.save_snapshot(SNAPSHOT_INTRUSO)
+    assert isinstance(erro.value.__cause__, RuntimeError)
+
+
+def test_banco_segue_utilizavel_depois_de_uma_gravacao_falha(store_configurado,
+                                                            snapshot, monkeypatch):
+    class SessaoQuebrada(storage.Session):
+        def commit(self):
+            self.flush()
+            raise RuntimeError('commit indisponível')
+
+    monkeypatch.setattr(storage, 'Session', SessaoQuebrada)
+    with pytest.raises(StorageError):
+        store_configurado.save_snapshot(
+            ConfigSnapshot(toth=1, inicio=1, acumular=True))
+
+    # Com a sessão normal de volta, a gravação seguinte funciona.
+    monkeypatch.undo()
+    novo = snapshot.model_copy(update={'toth': 7})
+    store_configurado.save_snapshot(novo)
+    assert store_configurado.load_snapshot() == novo
+
+
+# --- Banco inválido, ausente e schema futuro -------------------------------
+
+def test_operacoes_falham_sem_criar_banco_inexistente(db_path, tmp_path):
+    loja = SQLiteStore(db_path)
+    operacoes = [
+        loja.integrity_check,
+        loja.load_snapshot,
+        lambda: loja.save_snapshot(ConfigSnapshot(toth=20, inicio=1, acumular=True)),
+    ]
+    for operacao in operacoes:
+        with pytest.raises(StorageError, match='inexistente'):
+            operacao()
+    assert list(tmp_path.iterdir()) == []
+
+
+def banco_zero_byte(caminho):
+    caminho.write_bytes(b'')
+
+
+def banco_bytes_aleatorios(caminho):
+    caminho.write_bytes(b'isto nao e um banco de dados SQLite' * 8)
+
+
+def banco_sem_tabelas(caminho):
+    # Arquivo SQLite legítimo, mas sem nenhuma das tabelas do schema v1.
+    sql_bruto(caminho, 'CREATE TABLE outra_coisa (x INTEGER)')
+
+
+def banco_sem_metadado(caminho):
+    SQLiteStore(caminho).bootstrap_v1()
+    sql_bruto(caminho, 'DELETE FROM schema_version')
+
+
+def banco_schema_futuro(caminho):
+    SQLiteStore(caminho).bootstrap_v1()
+    sql_bruto(caminho, 'UPDATE schema_version SET version = 2')
+
+
+VARIANTES_INVALIDAS = [
+    pytest.param(banco_zero_byte, id='zero-bytes'),
+    pytest.param(banco_bytes_aleatorios, id='bytes-aleatorios'),
+    pytest.param(banco_sem_tabelas, id='sem-tabelas'),
+    pytest.param(banco_sem_metadado, id='sem-metadado'),
+    pytest.param(banco_schema_futuro, id='schema-futuro'),
+]
+
+
+@pytest.mark.parametrize('fabricar', VARIANTES_INVALIDAS)
+def test_integrity_check_reprova_banco_invalido(db_path, fabricar):
+    fabricar(db_path)
+    with pytest.raises(StorageError):
+        SQLiteStore(db_path).integrity_check()
+
+
+@pytest.mark.parametrize('fabricar', VARIANTES_INVALIDAS)
+def test_load_snapshot_reprova_banco_invalido(db_path, fabricar):
+    fabricar(db_path)
+    with pytest.raises(StorageError):
+        SQLiteStore(db_path).load_snapshot()
+
+
+@pytest.mark.parametrize('fabricar', VARIANTES_INVALIDAS)
+def test_save_snapshot_reprova_banco_invalido(db_path, fabricar):
+    fabricar(db_path)
+    with pytest.raises(StorageError):
+        SQLiteStore(db_path).save_snapshot(
+            ConfigSnapshot(toth=20, inicio=1, acumular=True))
+
+
+def test_schema_futuro_falha_sem_tentar_migrar(db_path):
+    banco_schema_futuro(db_path)
+    loja = SQLiteStore(db_path)
+    with pytest.raises(StorageError, match='desconhecida'):
+        loja.load_snapshot()
+
+    # Nem downgrade, nem create_all, nem qualquer escrita: o arquivo fica como
+    # estava.
+    with contextlib.closing(sqlite3.connect(str(db_path))) as conexao:
+        assert conexao.execute('SELECT version FROM schema_version').fetchall() \
+               == [(2,)]
+
+
+def test_metadado_ausente_nao_e_confundido_com_nao_configurado(db_path, tmp_path):
+    # Caminhos de código distintos: sem metadado é corrupção; sem configuração é
+    # um banco novo e legítimo. Uma checagem frouxa ("a tabela existe?")
+    # confundiria os dois.
+    corrompido = tmp_path / 'corrompido.sqlite3'
+    banco_sem_metadado(corrompido)
+    with pytest.raises(StorageError, match='Metadado de schema'):
+        SQLiteStore(corrompido).load_snapshot()
+
+    novo = SQLiteStore(db_path)
+    novo.bootstrap_v1()
+    assert novo.load_snapshot() is UNCONFIGURED
+
+
+def test_load_snapshot_recusa_conteudo_que_nao_valida(store_configurado):
+    # Valor gravado fora da API: o DTO tem de reprovar em vez de propagar lixo.
+    sql_bruto(store_configurado.path,
+              "UPDATE activity SET pts = 'nao e numero' WHERE name = 'Café ☕'")
+    with pytest.raises(StorageError, match='Conteúdo') as erro:
+        store_configurado.load_snapshot()
+    assert isinstance(erro.value.__cause__, ValidationError)
+
+
+def test_load_snapshot_recusa_nome_reservado_gravado_diretamente(store_configurado):
+    # O nome reservado não pode ser descartado em silêncio na leitura: ele é erro
+    # explícito, como na validação do DTO.
+    sql_bruto(store_configurado.path,
+              "INSERT INTO activity (name, pts, saldo) "
+              "VALUES ('__header__', 0.5, 1.0)")
+    with pytest.raises(StorageError, match='Conteúdo') as erro:
+        store_configurado.load_snapshot()
+    assert 'reservado: __header__' in str(erro.value.__cause__)
+
+
+def test_save_snapshot_nunca_grava_o_nome_reservado(store_configurado):
+    # Não existe caminho: o snapshot com o nome reservado não chega a ser
+    # construído, e o banco continua sem essa linha.
+    with pytest.raises(ValidationError, match='reservado'):
+        ConfigSnapshot(toth=20, inicio=1, acumular=True,
+                       activities=(ActivitySnapshot(name='__header__', pts=0.5,
+                                                    saldo=0.0),))
+
+    with contextlib.closing(sqlite3.connect(str(store_configurado.path))) as conexao:
+        assert conexao.execute(
+            "SELECT count(*) FROM activity WHERE name = '__header__'"
+        ).fetchone() == (0,)
+
+
+# --- Handles e bloqueio no Windows -----------------------------------------
+
+@contextlib.contextmanager
+def sem_compartilhamento(caminho):
+    '''Abre o arquivo com share mode 0, como um processo que trava o banco.'''
+    import ctypes
+    from ctypes import wintypes
+
+    GENERIC_READ = 0x80000000
+    OPEN_EXISTING = 3
+    FILE_ATTRIBUTE_NORMAL = 0x80
+    HANDLE_INVALIDO = ctypes.c_void_p(-1).value
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD,
+                                     wintypes.DWORD, wintypes.LPVOID,
+                                     wintypes.DWORD, wintypes.DWORD,
+                                     wintypes.HANDLE]
+    handle = kernel32.CreateFileW(str(caminho), GENERIC_READ, 0, None,
+                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, None)
+    if handle == HANDLE_INVALIDO:
+        raise OSError(ctypes.get_last_error(), 'CreateFileW falhou')
+    try:
+        yield
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='share mode é específico do Windows')
+def test_banco_bloqueado_vira_erro_de_armazenamento_com_causa(store_configurado):
+    operacoes = [
+        store_configurado.integrity_check,
+        store_configurado.load_snapshot,
+        lambda: store_configurado.save_snapshot(
+            ConfigSnapshot(toth=20, inicio=1, acumular=True)),
+    ]
+    with sem_compartilhamento(store_configurado.path):
+        for operacao in operacoes:
+            with pytest.raises(StorageError) as erro:
+                operacao()
+            # Mesma regra de "banco inválido/desconhecido", com a causa de SO
+            # preservada por exception chaining.
+            assert erro.value.__cause__ is not None
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='share mode é específico do Windows')
+def test_banco_volta_a_funcionar_quando_o_bloqueio_termina(store_configurado,
+                                                           snapshot):
+    with sem_compartilhamento(store_configurado.path):
+        with pytest.raises(StorageError):
+            store_configurado.load_snapshot()
+    assert store_configurado.load_snapshot() == snapshot
+
+
+def test_arquivo_pode_ser_removido_logo_apos_gravar(store, snapshot):
+    store.save_snapshot(snapshot)
+    # Sem sleep e sem retry: se algum engine ficasse vivo, o Windows recusaria.
+    os.remove(store.path)
+    assert store.exists() is False
+
+
+def test_arquivo_pode_ser_substituido_logo_apos_ler(store_configurado, tmp_path):
+    store_configurado.load_snapshot()
+    substituto = tmp_path / 'substituto.sqlite3'
+    SQLiteStore(substituto).bootstrap_v1()
+
+    os.replace(str(substituto), store_configurado.path)
+    assert store_configurado.load_snapshot() is UNCONFIGURED
+
+
+def test_store_nao_retem_engine_nem_sessao_entre_chamadas(store, snapshot):
+    esperado = set(vars(store))
+    store.save_snapshot(snapshot)
+    store.load_snapshot()
+    store.integrity_check()
+    # Nenhum atributo novo: nada de engine ou sessão guardados na instância.
+    assert set(vars(store)) == esperado
+
+
+@pytest.mark.parametrize('operacao', ['load_snapshot', 'integrity_check',
+                                      'save_snapshot'])
+def test_cada_operacao_usa_um_unico_engine(store_configurado, operacao):
+    engines = []
+
+    def fabrica(caminho, echo=False):
+        engine = storage.create_engine_for(caminho, echo=echo)
+        engines.append(engine)
+        return engine
+
+    loja = SQLiteStore(store_configurado.path, engine_factory=fabrica)
+    if operacao == 'save_snapshot':
+        loja.save_snapshot(ConfigSnapshot(toth=20, inicio=1, acumular=True))
+    else:
+        getattr(loja, operacao)()
+
+    assert len(engines) == 1
