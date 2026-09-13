@@ -120,6 +120,6 @@ o modo acumulativo, a interface PySide6 pura e o CI do Sprint 2 no fork `alsimoe
 - Issue #4: aberta — https://github.com/alsimoes/d10r/issues/4
 - Ocorrências e rollback: o primeiro CI do head final sinalizou actions baseadas em Node.js
   20; `checkout` e `setup-python` foram atualizadas para `v7` no commit `60c39b7` e as
-  execuções seguintes terminaram sem anotações. O GitHub removeu automaticamente a branch
-  remota `feat/sprint-2` após o merge; a branch local foi preservada. Rollback não foi
+  execuções seguintes terminaram sem anotações. As branches local e remota
+  `feat/sprint-2` foram preservadas para rollback, conforme o runbook. Rollback não foi
   necessário.
