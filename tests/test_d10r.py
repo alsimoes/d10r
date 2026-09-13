@@ -1,4 +1,5 @@
 import pytest
+import datetime
 from d10r import calcula_prioridades
 import data
 import d10r
@@ -32,9 +33,19 @@ def test_calcula_prioridades():
 
 
 def test_init_credita_primeira_execucao_e_grava_data(monkeypatch):
-    hoje = __import__('datetime').date.today()
+    primeira_data = datetime.date(2024, 1, 8)
+    segunda_data = datetime.date(2024, 1, 9)
+    chamadas_data = []
+
+    class DateProbe:
+        @classmethod
+        def today(cls):
+            chamadas_data.append(None)
+            return primeira_data if len(chamadas_data) == 1 else segunda_data
+
     creditos = []
     salvos = []
+    monkeypatch.setattr(d10r.datetime, 'date', DateProbe)
     monkeypatch.setattr(d10r.gui, 'notificar', lambda *args: None)
     monkeypatch.setattr(d10r, 'ler_atividades', lambda: {'A', 'B'})
     monkeypatch.setattr(d10r.gui, 'prioridade_dialog',
@@ -48,8 +59,9 @@ def test_init_credita_primeira_execucao_e_grava_data(monkeypatch):
 
     d10r.init()
 
-    assert creditos == [(10, hoje.isoweekday(), 0, False)]
-    assert salvos == [(10, hoje.isoweekday(), hoje, False)]
+    assert len(chamadas_data) == 1
+    assert creditos == [(10, primeira_data.isoweekday(), 0, False)]
+    assert salvos == [(10, primeira_data.isoweekday(), primeira_data, False)]
 
 
 def test_cancelar_escolha_encerra_e_salva(monkeypatch):
