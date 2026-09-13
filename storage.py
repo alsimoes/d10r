@@ -155,6 +155,12 @@ class ActivityRow(SQLModel, table=True):
 # valores aceitáveis de prioridade ou saldo.
 FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
 
+# Nome de seção que o INI de entrada reserva para os parâmetros semanais. O
+# formato antigo descartava em silêncio uma atividade com esse nome; aqui ela é
+# um erro explícito, para que nada seja persistido nem perdido sem aviso. O
+# literal é repetido de propósito: `storage` não depende da facade.
+RESERVED_ACTIVITY_NAME = '__header__'
+
 
 class ActivitySnapshot(BaseModel):
     '''Atividade validada, pronta para persistência ou para o domínio.'''
@@ -167,10 +173,17 @@ class ActivitySnapshot(BaseModel):
 
     @field_validator('name')
     @classmethod
-    def _nome_nao_em_branco(cls, valor):
-        '''O nome é preservado como veio; apenas nomes em branco são rejeitados.'''
+    def _nome_utilizavel(cls, valor):
+        '''O nome é preservado como veio: nada de normalização.
+
+        Só dois nomes são recusados — o nome em branco e o literal exato
+        reservado pelo INI de entrada. A comparação é literal, de modo que
+        variações com espaços ou outra caixa continuam sendo nomes válidos.'''
         if not valor.strip():
             raise ValueError('nome de atividade em branco')
+        if valor == RESERVED_ACTIVITY_NAME:
+            raise ValueError('nome de atividade reservado: %s'
+                             % (RESERVED_ACTIVITY_NAME,))
         return valor
 
 

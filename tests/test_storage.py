@@ -70,6 +70,52 @@ def test_activity_snapshot_preserva_o_nome_como_veio():
     assert ActivitySnapshot(name=' Ler ', pts=0.5, saldo=0.0).name == ' Ler '
 
 
+def test_activity_snapshot_rejeita_o_nome_reservado():
+    # O INI antigo descartava em silêncio a atividade homônima da seção de
+    # parâmetros; aqui o estado inválido nem chega a existir.
+    with pytest.raises(ValidationError, match='reservado: __header__'):
+        ActivitySnapshot(name=storage.RESERVED_ACTIVITY_NAME, pts=1.0, saldo=0.0)
+
+
+@pytest.mark.parametrize('nome', [' __header__', '__header__ ', ' __header__ ',
+                                  '__HEADER__', '_header_', '__header__x'])
+def test_activity_snapshot_recusa_apenas_o_literal_reservado(nome):
+    # A comparação é com o valor literal: nenhuma normalização nova foi
+    # introduzida, então nomes vizinhos continuam válidos e preservados.
+    assert ActivitySnapshot(name=nome, pts=0.5, saldo=0.0).name == nome
+
+
+def test_config_snapshot_nao_se_constroi_com_nome_reservado():
+    # Montar a tupla de atividades já falha, antes de existir um ConfigSnapshot.
+    with pytest.raises(ValidationError, match='reservado'):
+        ConfigSnapshot(
+            toth=20, inicio=1, acumular=True,
+            activities=(
+                ActivitySnapshot(name='Ler', pts=0.5, saldo=0.0),
+                ActivitySnapshot(name=storage.RESERVED_ACTIVITY_NAME,
+                                 pts=0.5, saldo=0.0),
+            ),
+        )
+
+
+def test_config_snapshot_rejeita_nome_reservado_em_atividade_aninhada():
+    # Mesmo pela validação aninhada (única via em que o DTO recebe dados
+    # brutos), o nome reservado é recusado e aponta a posição exata.
+    dados = {
+        'toth': 20, 'inicio': 1, 'acumular': True,
+        'activities': [
+            {'name': 'Ler', 'pts': 0.5, 'saldo': 0.0},
+            {'name': storage.RESERVED_ACTIVITY_NAME, 'pts': 0.5, 'saldo': 0.0},
+        ],
+    }
+    with pytest.raises(ValidationError) as erro:
+        ConfigSnapshot.model_validate(dados, strict=False)
+
+    locais = [e['loc'] for e in erro.value.errors()]
+    assert ('activities', 1, 'name') in locais
+    assert 'reservado: __header__' in str(erro.value)
+
+
 @pytest.mark.parametrize('campos', [
     {'name': 'A1', 'pts': '0.5', 'saldo': 0.0},  # str não é float
     {'name': 'A1', 'pts': 0.5, 'saldo': None},   # saldo é obrigatório
