@@ -1,11 +1,16 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 '''
-Fundação do armazenamento SQLite do d10r (schema v1).
+Armazenamento SQLite do d10r (schema v1).
 
 Este módulo concentra as entidades SQLModel que representam as tabelas, os DTOs
 Pydantic que validam snapshots antes de qualquer gravação, a fábrica injetável de
-engines e o bootstrap explícito do schema v1.
+engines, o bootstrap explícito do schema v1, o repositório transacional e a
+importação única do INI legado.
+
+O INI é apenas entrada transitória de parâmetros: é lido uma única vez, quando o
+SQLite ainda não existe, e removido pelo caminho exato depois de um banco íntegro
+existir. Nunca é backend, formato de saída nem fallback de recuperação.
 
 Dois princípios são estruturais e valem para todo o módulo:
 
@@ -21,8 +26,11 @@ Copyright (C) 2010  Ygor Mutti
 Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 '''
 
+import codecs
 import datetime
 import os
+import tempfile
+from configparser import ConfigParser, Error as ConfigParserError
 from contextlib import contextmanager
 from typing import Annotated, Optional, Union
 
@@ -38,6 +46,15 @@ SCHEMA_VERSION = 1
 
 # Chave primária fixa das tabelas singleton.
 SINGLETON_ID = 1
+
+# Seção e codificação do INI legado, replicadas do formato antigo para que os
+# arquivos existentes continuem legíveis na importação única.
+LEGACY_HEADER = '__header__'
+LEGACY_ENCODING = 'utf-8'
+
+# Prefixo do banco temporário de uma tentativa de importação. Cada tentativa cria
+# o seu, no mesmo diretório do banco final, e nenhuma reutiliza o de outra.
+TEMP_PREFIX = '.d10r-import-'
 
 
 class StorageError(Exception):
@@ -455,3 +472,200 @@ class SQLiteStore:
         except OSError:
             # A falha original é mais informativa do que a falha de limpeza.
             pass
+
+
+# --- Importação única do INI legado ----------------------------------------
+
+def read_legacy_ini(legacy_ini_path):
+    '''read_legacy_ini(legacy_ini_path) -> ConfigSnapshot
+
+    Leitor puro: lê o INI inteiro em memória e devolve um snapshot validado.
+
+    Não registra `Atividade`, não cria, grava nem apaga arquivo nenhum e não
+    conhece o banco. Uma seção malformada depois de uma seção válida não deixa
+    nada pela metade, porque nada é publicado antes de o snapshot inteiro
+    validar. Qualquer desvio vira `StorageError` com a causa preservada, e o
+    arquivo de entrada fica exatamente como estava.'''
+    parser = ConfigParser()
+
+    try:
+        with codecs.open(os.fspath(legacy_ini_path), 'r',
+                         LEGACY_ENCODING) as arquivo:
+            parser.read_file(arquivo)
+    except OSError as erro:
+        raise StorageError('Arquivo legado inexistente ou ilegível: %s'
+                           % (legacy_ini_path,)) from erro
+    except (UnicodeError, ConfigParserError, ValueError) as erro:
+        raise StorageError('Arquivo legado corrompido: %s'
+                           % (legacy_ini_path,)) from erro
+
+    try:
+        toth = parser.getint(LEGACY_HEADER, 'disponivel')
+        inicio = parser.getint(LEGACY_HEADER, 'inicio')
+        timestamp = parser.getint(LEGACY_HEADER, 'timestamp')
+        # A chave só apareceu no modo acumulativo; um INI anterior a ela vale
+        # como acumulativo, igual ao formato antigo.
+        acumular = parser.getboolean(LEGACY_HEADER, 'acumular', fallback=True)
+        atividades = [(secao,
+                       parser.getfloat(secao, 'pts'),
+                       parser.getfloat(secao, 'saldo'))
+                      for secao in parser.sections() if secao != LEGACY_HEADER]
+    except (TypeError, ValueError, ConfigParserError) as erro:
+        raise StorageError('Arquivo legado corrompido: %s'
+                           % (legacy_ini_path,)) from erro
+
+    try:
+        return ConfigSnapshot(
+            toth=toth,
+            inicio=inicio,
+            last_credit_date=_data_do_timestamp_legado(timestamp),
+            acumular=acumular,
+            activities=tuple(ActivitySnapshot(name=nome, pts=pts, saldo=saldo)
+                             for nome, pts, saldo in atividades),
+        )
+    except (ValidationError, ValueError) as erro:
+        raise StorageError('Parâmetros legados inválidos: %s'
+                           % (legacy_ini_path,)) from erro
+
+
+def remove_legacy_ini_exact(legacy_ini_path):
+    '''Remove exatamente este caminho — nunca um padrão, nunca um glob.
+
+    Arquivos irmãos (backups, cópias, sufixos) não são candidatos: só o caminho
+    de entrada injetado é apagado. Já não existir não é erro; falhar em apagar é,
+    e o chamador precisa tratar, porque nesse ponto o banco já é autoritativo.'''
+    try:
+        os.remove(os.fspath(legacy_ini_path))
+    except FileNotFoundError:
+        return
+    except OSError as erro:
+        raise StorageError('Falha ao remover o arquivo legado: %s'
+                           % (legacy_ini_path,)) from erro
+
+
+def migrate_legacy_ini(legacy_ini_path, db_path):
+    '''migrate_legacy_ini(legacy_ini_path, db_path) -> SQLiteStore
+
+    Importa os parâmetros do INI uma única vez e promove um SQLite íntegro.
+
+    A ordem é: ler o INI inteiro, validar em DTOs, criar um temporário único no
+    mesmo diretório do banco final, gravar o snapshot numa transação, verificar
+    integridade e reler/comparar, descartar engines, promover com `os.replace()`
+    e só então remover o INI pelo caminho exato.
+
+    Qualquer falha antes da promoção remove apenas o temporário desta tentativa,
+    não deixa banco final parcial e **preserva o INI** — preservar a entrada de
+    uma importação que não chegou a um banco íntegro não é fallback: o chamador
+    recebe erro e não usa esses valores. Depois da promoção, o banco já é
+    autoritativo; se a remoção do INI falhar, o erro sobe e a próxima execução
+    repete somente a remoção, sem reimportar.'''
+    destino = SQLiteStore(db_path)
+    if destino.exists():
+        # O INI só é entrada quando o SQLite não existe; promover sobre um banco
+        # existente sobrescreveria dados já convertidos.
+        raise StorageError('Banco de dados já existe; importação recusada: %s'
+                           % (destino.path,))
+
+    snapshot = read_legacy_ini(legacy_ini_path)
+
+    temporario = _reservar_temporario(destino.path)
+    promovido = False
+    try:
+        try:
+            parcial = SQLiteStore(temporario,
+                                  engine_factory=destino._engine_factory)
+            parcial.bootstrap_v1()
+            parcial.save_snapshot(snapshot)
+
+            # Releitura completa antes de qualquer promoção: só um banco que
+            # devolve exatamente o mesmo snapshot autoriza o corte.
+            parcial.integrity_check()
+            if parcial.load_snapshot() != snapshot:
+                raise StorageError(
+                    'Releitura do banco importado divergiu do INI: %s'
+                    % (legacy_ini_path,))
+
+            # As operações acima já descartaram os seus engines; nenhum handle
+            # fica aberto sobre o temporário, o que o Windows exige para renomear.
+            os.replace(temporario, destino.path)
+            promovido = True
+        except StorageError:
+            raise
+        except Exception as erro:
+            # A importação é fronteira: nada de exceção crua escapa para o
+            # chamador, e a causa original é sempre encadeada.
+            raise StorageError('Falha ao importar o arquivo legado: %s'
+                               % (legacy_ini_path,)) from erro
+    finally:
+        if not promovido:
+            _remover_temporario(temporario)
+
+    # Última etapa, e só agora: o banco final já está íntegro no disco.
+    remove_legacy_ini_exact(legacy_ini_path)
+
+    return destino
+
+
+def ensure_storage(db_path, legacy_ini_path):
+    '''ensure_storage(db_path, legacy_ini_path) -> SQLiteStore
+
+    Resolve o estado inicial do armazenamento em uma única decisão explícita:
+
+    - banco presente: validar. Inválido ou inacessível vira erro sem consultar
+      nem apagar o INI; válido vence, e um INI que ainda exista é removido pelo
+      caminho exato **sem ser lido**;
+    - banco ausente e INI presente: importar uma vez, promover e remover o INI;
+    - banco ausente e INI ausente: criar o schema v1 vazio e seguir para a
+      configuração inicial.
+
+    Não existe seleção de INI alternativo, procura manual, cópia para o perfil
+    nem fallback: ambos os caminhos são injetados pelo chamador.'''
+    destino = SQLiteStore(db_path)
+
+    if destino.exists():
+        destino.integrity_check()
+        if os.path.exists(os.fspath(legacy_ini_path)):
+            # Banco válido vence: o INI não é lido, apenas removido.
+            remove_legacy_ini_exact(legacy_ini_path)
+        return destino
+
+    if os.path.exists(os.fspath(legacy_ini_path)):
+        return migrate_legacy_ini(legacy_ini_path, db_path)
+
+    destino.bootstrap_v1()
+    return destino
+
+
+def _data_do_timestamp_legado(timestamp):
+    '''Converte o `AAAAMMDD` do INI em data; `0` significa "nenhum crédito".'''
+    if not timestamp:
+        return None
+
+    ano, resto = divmod(timestamp, 10000)
+    mes, dia = divmod(resto, 100)
+    return datetime.date(ano, mes, dia)
+
+
+def _reservar_temporario(db_path):
+    '''Reserva um nome de temporário único no mesmo diretório do banco final.
+
+    O nome vem de `mkstemp`, que garante unicidade; o arquivo vazio é removido em
+    seguida porque o bootstrap se recusa, por contrato, a tocar num arquivo que
+    já existe. Ficar no mesmo diretório é o que torna a promoção por `os.replace`
+    uma troca atômica, e não uma cópia entre volumes.'''
+    diretorio = os.path.dirname(os.path.abspath(db_path)) or '.'
+    descritor, caminho = tempfile.mkstemp(dir=diretorio, prefix=TEMP_PREFIX,
+                                         suffix='.sqlite3')
+    os.close(descritor)
+    os.remove(caminho)
+    return caminho
+
+
+def _remover_temporario(caminho):
+    '''Limpa somente o temporário desta tentativa, pelo caminho exato.'''
+    try:
+        if os.path.exists(caminho):
+            os.remove(caminho)
+    except OSError:
+        # A falha original da importação é mais informativa do que esta.
+        pass
