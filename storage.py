@@ -543,8 +543,8 @@ def remove_legacy_ini_exact(legacy_ini_path):
                            % (legacy_ini_path,)) from erro
 
 
-def migrate_legacy_ini(legacy_ini_path, db_path):
-    '''migrate_legacy_ini(legacy_ini_path, db_path) -> SQLiteStore
+def import_legacy_ini(legacy_ini_path, db_path):
+    '''import_legacy_ini(legacy_ini_path, db_path) -> SQLiteStore
 
     Importa os parâmetros do INI uma única vez e promove um SQLite íntegro.
 
@@ -630,7 +630,7 @@ def ensure_storage(db_path, legacy_ini_path):
         return destino
 
     if os.path.exists(os.fspath(legacy_ini_path)):
-        return migrate_legacy_ini(legacy_ini_path, db_path)
+        return import_legacy_ini(legacy_ini_path, db_path)
 
     destino.bootstrap_v1()
     return destino

@@ -13,7 +13,7 @@ import pytest
 
 import storage
 from storage import (UNCONFIGURED, ActivitySnapshot, ConfigSnapshot, SQLiteStore,
-                    StorageError, ensure_storage, migrate_legacy_ini,
+                    StorageError, ensure_storage, import_legacy_ini,
                     read_legacy_ini, remove_legacy_ini_exact)
 
 
@@ -230,7 +230,7 @@ def test_remocao_converte_falha_de_so_em_erro_de_armazenamento(ini, monkeypatch)
 # --- Importação bem-sucedida ------------------------------------------------
 
 def test_migracao_promove_o_banco_e_remove_o_ini(ini, db_path, tmp_path):
-    loja = migrate_legacy_ini(ini, db_path)
+    loja = import_legacy_ini(ini, db_path)
 
     assert loja.load_snapshot() == SNAPSHOT_PADRAO
     assert not ini.exists()
@@ -242,7 +242,7 @@ def test_migracao_de_ini_legado_sem_acumular(ini_path, db_path):
     campos = {k: v for k, v in CABECALHO_PADRAO.items() if k != 'acumular'}
     ini_path.write_text(texto_ini(campos), encoding='utf-8')
 
-    loja = migrate_legacy_ini(ini_path, db_path)
+    loja = import_legacy_ini(ini_path, db_path)
     assert loja.load_snapshot().acumular is True
 
 
@@ -250,7 +250,7 @@ def test_migracao_preserva_timestamp_zero(ini_path, db_path):
     campos = dict(CABECALHO_PADRAO, timestamp='0')
     ini_path.write_text(texto_ini(campos), encoding='utf-8')
 
-    assert migrate_legacy_ini(ini_path, db_path).load_snapshot().last_credit_date \
+    assert import_legacy_ini(ini_path, db_path).load_snapshot().last_credit_date \
            is None
 
 
@@ -264,7 +264,7 @@ def test_migracao_usa_temporario_unico_no_diretorio_do_banco(ini, db_path,
         return replace_real(origem, destino)
 
     monkeypatch.setattr('os.replace', replace_espiao)
-    migrate_legacy_ini(ini, db_path)
+    import_legacy_ini(ini, db_path)
 
     assert len(origens) == 1
     temporario = origens[0]
@@ -278,7 +278,7 @@ def test_migracao_nao_reaproveita_temporario_de_outra_tentativa(ini, db_path,
     orfao = tmp_path / (storage.TEMP_PREFIX + 'de-uma-queda.sqlite3')
     orfao.write_text('resto de tentativa anterior', encoding='utf-8')
 
-    migrate_legacy_ini(ini, db_path)
+    import_legacy_ini(ini, db_path)
 
     # Nem reutilizado, nem apagado por padrão: a limpeza é sempre pelo caminho
     # exato da tentativa atual.
@@ -286,7 +286,7 @@ def test_migracao_nao_reaproveita_temporario_de_outra_tentativa(ini, db_path,
 
 
 def test_migracao_libera_o_arquivo_imediatamente(ini, db_path):
-    migrate_legacy_ini(ini, db_path)
+    import_legacy_ini(ini, db_path)
     # Sem sleep e sem retry: nenhum engine pode ter sobrado aberto.
     os.remove(str(db_path))
     assert not db_path.exists()
@@ -297,7 +297,7 @@ def test_migracao_recusa_banco_final_existente(ini, db_path):
     antes = db_path.read_bytes()
 
     with pytest.raises(StorageError, match='já existe'):
-        migrate_legacy_ini(ini, db_path)
+        import_legacy_ini(ini, db_path)
 
     # O INI só é entrada quando o banco não existe; nada foi lido nem apagado.
     assert ini.exists()
@@ -328,7 +328,7 @@ def test_migracao_ocorre_depois_da_verificacao_e_antes_da_remocao(ini, db_path,
     monkeypatch.setattr('os.replace', replace_espiao)
     monkeypatch.setattr('os.remove', remove_espiao)
 
-    migrate_legacy_ini(ini, db_path)
+    import_legacy_ini(ini, db_path)
 
     assert ordem == ['releitura', 'promocao', 'remocao-do-ini']
 
@@ -389,7 +389,7 @@ def test_falha_antes_da_promocao_preserva_o_ini_e_nao_deixa_banco(
     quebrar(monkeypatch)
 
     with pytest.raises(StorageError):
-        migrate_legacy_ini(ini, db_path)
+        import_legacy_ini(ini, db_path)
 
     # Preservar a entrada de uma importação que não chegou a um banco íntegro não
     # é fallback: o chamador recebe erro e não usa esses valores.
@@ -402,7 +402,7 @@ def test_falha_de_leitura_nao_cria_temporario(ini_path, db_path, tmp_path):
     ini_path.write_text('[invalido', encoding='utf-8')
 
     with pytest.raises(StorageError):
-        migrate_legacy_ini(ini_path, db_path)
+        import_legacy_ini(ini_path, db_path)
 
     assert ini_path.exists()
     assert not db_path.exists()
@@ -415,7 +415,7 @@ def test_falha_antes_da_promocao_nao_deixa_excecao_crua_escapar(ini, db_path,
                                                                quebrar, causa):
     quebrar(monkeypatch)
     with pytest.raises(StorageError) as erro:
-        migrate_legacy_ini(ini, db_path)
+        import_legacy_ini(ini, db_path)
 
     if causa is None:
         # A própria importação reprovou; não há exceção de origem a encadear.
@@ -442,7 +442,7 @@ def remocao_do_ini_falha(ini, monkeypatch):
 def test_falha_na_remocao_do_ini_gera_erro_com_banco_intacto(
         ini, db_path, remocao_do_ini_falha):
     with pytest.raises(StorageError, match='remover o arquivo legado'):
-        migrate_legacy_ini(ini, db_path)
+        import_legacy_ini(ini, db_path)
 
     # O banco já é autoritativo e completo; a coexistência é que é o problema.
     assert db_path.exists()
