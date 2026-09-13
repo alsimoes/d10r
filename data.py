@@ -10,7 +10,8 @@ Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 import os
 import codecs
 import datetime
-from configparser import ConfigParser, NoSectionError
+from configparser import (ConfigParser, Error as ConfigParserError,
+                          NoSectionError)
 
 from utils import dias_x_entre
 
@@ -84,9 +85,12 @@ def parse_config():
     parser = ConfigParser()
 
     try:
-        parser.read_file(codecs.open(CONFIG, 'r', ENCODING))
-    except IOError:
+        with codecs.open(CONFIG, 'r', ENCODING) as config_file:
+            parser.read_file(config_file)
+    except (OSError, UnicodeError):
         raise ArquivoError('Nenhum arquivo de configuração encontrado.')
+    except (ConfigParserError, ValueError):
+        raise ArquivoError('Arquivo de configuração corrompido.')
 
     try:
         toth = parser.getint(HEADER, 'disponivel')
@@ -103,7 +107,8 @@ def parse_config():
                 kwargs = {'nome':a, 'pts':parser.getfloat(a, 'pts'),
                           'saldo':parser.getfloat(a, 'saldo')}
                 Atividade(**kwargs)
-    except (TypeError, NoSectionError):
+    except (TypeError, ValueError, ConfigParserError, NoSectionError):
+        Atividade.clear()
         raise ArquivoError('Arquivo de configuração corrompido.')
 
     return (toth, inicio, timestamp)

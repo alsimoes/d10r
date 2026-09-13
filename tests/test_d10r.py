@@ -1,5 +1,16 @@
 import pytest
 from d10r import calcula_prioridades
+import data
+import d10r
+
+
+class AtividadeFake:
+    def __init__(self, saldo=2.0):
+        self.nome = 'Teste'
+        self.saldo = saldo
+
+    def debitarh(self, horas):
+        self.saldo -= horas
 
 def test_calcula_prioridades():
     # Lista de atividades ordenadas da mais para a menos prioritária
@@ -18,3 +29,39 @@ def test_calcula_prioridades():
     assert prioridades["Academia"] == 2
     assert prioridades["Lazer"] == 1
     assert len(prioridades) == 4
+
+
+def test_cancelar_escolha_encerra_e_salva(monkeypatch):
+    atividade = AtividadeFake()
+    monkeypatch.setattr(data, 'parse_config', lambda: (8, 1, 0))
+    monkeypatch.setattr(data, 'creditar_tudo', lambda *args, **kwargs: False)
+    monkeypatch.setattr(data.Atividade, 'all', classmethod(lambda cls: [atividade]))
+    monkeypatch.setattr(d10r, 'escolher_ativ', lambda: None)
+    salvo = []
+    monkeypatch.setattr(data, 'salvar_config', lambda *args: salvo.append(args))
+    d10r.main()
+    assert atividade.saldo == 2.0
+    assert salvo
+
+
+def test_cancelar_entrada_manual_gera_debito_zero(monkeypatch):
+    atividade = AtividadeFake()
+    monkeypatch.setattr(d10r.gui, 'menu', lambda *args: 'Inserir')
+    monkeypatch.setattr(d10r.gui, 'horaspin', lambda *args: None)
+    assert d10r.debitar(atividade) == 0.0
+
+
+def test_recusar_confirmacao_preserva_saldo(monkeypatch):
+    atividade = AtividadeFake()
+    escolhas = iter([atividade, None])
+    perguntas = iter([False])
+    salvo = []
+    monkeypatch.setattr(data, 'parse_config', lambda: (8, 1, 0))
+    monkeypatch.setattr(data, 'creditar_tudo', lambda *args, **kwargs: False)
+    monkeypatch.setattr(d10r, 'escolher_ativ', lambda: next(escolhas))
+    monkeypatch.setattr(d10r, 'debitar', lambda *args: 1.0)
+    monkeypatch.setattr(d10r.gui, 'perguntar', lambda *args: next(perguntas))
+    monkeypatch.setattr(data, 'salvar_config', lambda *args: salvo.append(args))
+    d10r.main()
+    assert atividade.saldo == 2.0
+    assert salvo

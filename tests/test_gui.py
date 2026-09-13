@@ -40,6 +40,14 @@ def test_fechar_janela_do_cronometro_para_a_thread(qapp):
     dlg.close()  # equivalente ao botão "X"
     assert dlg.cronometro.isparado
     assert not dlg.timer.isActive()
+    assert not dlg.cronometro.is_alive()
+
+
+@pytest.mark.parametrize('resultado', [0, 1])
+def test_aceitar_ou_rejeitar_cronometro_para_a_thread(qapp, resultado):
+    dlg = gui_pyside.CronometroDialogQt(AtividadeFake(), parar=False)
+    dlg.done(resultado)
+    assert not dlg.cronometro.is_alive()
 
 
 def _clicar_no_dialogo_ativo(texto):
