@@ -6,21 +6,29 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows 11/windows-latest é o único ambiente suportado e validado deste
+    # sprint; Linux e macOS saíram do aceite.
+    runs-on: windows-latest
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          # O diff-check compara com origin/master, então precisa do histórico.
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Install Qt system libraries
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest -q tests
       - name: Compile Python sources
         run: python -m compileall -q .
+      - name: Check diff whitespace
+        shell: bash
+        # docs/d10r-correcoes.patch é artefato histórico herdado de master e sua
+        # preservação intacta é exigida; editá-lo corromperia o patch.
+        run: git diff --check origin/master...HEAD -- . ":(exclude)docs/d10r-correcoes.patch"

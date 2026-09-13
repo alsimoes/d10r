@@ -44,6 +44,33 @@ acumular. O modo acumulativo credita todas as semanas em atraso; no modo não
 acumulativo, credita no máximo uma semana e zera apenas saldos positivos antes
 do crédito. A primeira execução sempre credita exatamente uma semana e salva a
 data do crédito.
+________________________________________________________________________________
+
+§ 2.1. Onde ficam os seus dados
+
+Toda a persistência vive em um único banco SQLite, em `~/.d10r.sqlite3`. O
+programa não cria, não grava e não lê nenhum outro formato.
+
+Se você não tem nenhum arquivo, o programa cria o banco vazio e vai direto ao
+questionário de primeira configuração — não há procura nem seleção de arquivo.
+
+Se você vem de uma versão anterior, que usava o arquivo INI `~/.d10r`, a
+atualização é automática e acontece uma única vez: os parâmetros do INI são
+importados, o banco é criado e verificado e só então o `~/.d10r` é removido.
+Depois disso o INI não existe mais e nunca volta a ser consultado.
+
+O corte é definitivo, então **faça uma cópia de `~/.d10r` antes da primeira
+execução** se quiser poder voltar à versão antiga.
+
+Quando algo dá errado, o programa avisa e para, em vez de adivinhar:
+
+- se a importação falhar em qualquer etapa antes de o banco estar pronto, o seu
+  `~/.d10r` continua intacto e nada é perdido;
+- se o banco existir mas estiver corrompido, o programa avisa e encerra sem
+  tocar em nenhum arquivo — não há recuperação automática nem volta ao INI;
+- se o banco já estiver pronto e um `~/.d10r` ainda existir, o INI é apagado sem
+  ser lido, porque o banco é a fonte de verdade. Se essa remoção falhar, o
+  programa avisa e tenta de novo na próxima execução, sem reimportar nada.
 
 Faça o download do programa em:
 

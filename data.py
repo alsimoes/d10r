@@ -3,26 +3,46 @@
 '''
 Módulo de dados (persistência, modelos, etc)
 
+A persistência é exclusivamente SQLite, em `DATABASE`. O INI legado não é
+backend, formato de saída nem fallback: é apenas entrada de uma importação
+única, feita pelo `storage`, e desaparece depois dela. Este módulo mantém a API
+pública de sempre — `ArquivoError`, `Atividade`, `parse_config`,
+`salvar_config` e `creditar_tudo`, com as mesmas aridades — e traduz as falhas
+do armazenamento para as mensagens públicas já conhecidas.
+
 Copyright (C) 2010  Ygor Mutti
 Licenciado sob GPLv3, com texto disponível no arquivo COPYING
 '''
 
 import os
-import codecs
 import datetime
-from configparser import (ConfigParser, Error as ConfigParserError,
-                          NoSectionError)
 
+import storage
 from utils import dias_x_entre
 
 
-CONFIG = os.path.expanduser('~/.d10r')
-HEADER = '__header__'
-ENCODING = 'utf-8'
+DATABASE = os.path.expanduser('~/.d10r.sqlite3')
+
+# Entrada legada da importação única. É deliberadamente privada: não é
+# configuração operacional, não pode ser escolhida pelo usuário e existe apenas
+# enquanto a transição do INI para o SQLite tiver sentido.
+_ENTRADA_LEGADA = storage.default_legacy_ini_path()
+
+MSG_SEM_ARQUIVO = 'Nenhum arquivo de configuração encontrado.'
+MSG_CORROMPIDO = 'Arquivo de configuração corrompido.'
 
 
 class ArquivoError(Exception):
     pass
+
+
+class ConfiguracaoAusente(ArquivoError):
+    '''Armazenamento íntegro que ainda não tem configuração.
+
+    É subclasse de `ArquivoError` para que qualquer `except ArquivoError`
+    existente continue valendo, mas permite ao chamador distinguir "banco novo,
+    siga para o questionário inicial" de "arquivo corrompido, pare". Sem essa
+    distinção, um banco corrompido cairia no fluxo de primeira execução.'''
 
 
 class Collection(type):
@@ -77,81 +97,91 @@ def parse_config():
     '''parse_config() -> (toth, inicio, timestamp, acumular)
     toth -> int
     inicio -> int
-    timestamp -> datetime.date
+    timestamp -> datetime.date ou 0
     acumular -> bool
 
-    Analisa o arquivo em CONFIG e retorna o total de horas disponíveis, o dia da
+    Carrega o armazenamento e retorna o total de horas disponíveis, o dia da
     semana de início da contagem (no formato ISO), a data do último crédito de
-    horas e a opção de acumular, além de instanciar as atividades.'''
-    parser = ConfigParser()
+    horas e a opção de acumular, além de instanciar as atividades.
 
+    Resolve o estado inicial: um banco íntegro é carregado; um INI legado ainda
+    existente é importado uma única vez e removido; e, se não houver nada, um
+    banco v1 vazio é criado. Nesse último caso — e sempre que o banco existir sem
+    configuração — levanta `ConfiguracaoAusente`, que o chamador converte no
+    questionário de primeira execução. Corrupção levanta `ArquivoError`.
+
+    As atividades só são registradas depois de o snapshot inteiro validar, de
+    modo que uma falha nunca deixa `Atividade` pela metade.'''
     try:
-        with codecs.open(CONFIG, 'r', ENCODING) as config_file:
-            parser.read_file(config_file)
-    except OSError:
-        raise ArquivoError('Nenhum arquivo de configuração encontrado.')
-    except (UnicodeError, ConfigParserError, ValueError):
-        raise ArquivoError('Arquivo de configuração corrompido.')
+        armazenamento = storage.ensure_storage(DATABASE, _ENTRADA_LEGADA)
+        snapshot = armazenamento.load_snapshot()
+    except storage.StorageError as erro:
+        raise ArquivoError(MSG_CORROMPIDO) from erro
 
-    try:
-        toth = parser.getint(HEADER, 'disponivel')
-        inicio = parser.getint(HEADER, 'inicio')
-        timestamp = parser.getint(HEADER, 'timestamp')
-        acumular = parser.getboolean(HEADER, 'acumular', fallback=True)
+    if snapshot is storage.UNCONFIGURED:
+        raise ConfiguracaoAusente(MSG_SEM_ARQUIVO)
 
-        if timestamp:
-            ano, timestamp = divmod(timestamp, 10000)
-            mes, dia = divmod(timestamp, 100)
-            timestamp = datetime.date(ano, mes, dia)
+    Atividade.clear()
+    for atividade in snapshot.activities:
+        Atividade(nome=atividade.name, pts=atividade.pts, saldo=atividade.saldo)
 
-        for a in parser.sections():
-            if a != HEADER:
-                kwargs = {'nome':a, 'pts':parser.getfloat(a, 'pts'),
-                          'saldo':parser.getfloat(a, 'saldo')}
-                Atividade(**kwargs)
-    except (TypeError, ValueError, ConfigParserError, NoSectionError):
-        Atividade.clear()
-        raise ArquivoError('Arquivo de configuração corrompido.')
+    # `0` continua sendo o "nenhum crédito ainda" público; no banco isso é NULL.
+    timestamp = snapshot.last_credit_date
+    if timestamp is None:
+        timestamp = 0
 
-    return (toth, inicio, timestamp, acumular)
+    return (snapshot.toth, snapshot.inicio, timestamp, snapshot.acumular)
 
 
 def salvar_config(toth, inicio, timestamp, acumular):
     '''salvar_config(toth, inicio, timestamp, acumular)
     toth -> int
     inicio -> int
-    timestamp -> datetime.date
+    timestamp -> datetime.date, datetime.datetime ou 0
     acumular -> bool
 
-    Atualiza CONFIG de forma análoga a função parse_config().'''
-    if isinstance(timestamp, (datetime.date, datetime.datetime)):
-        timestamp = timestamp.year * 10000 + \
-                    timestamp.month * 100 + timestamp.day
+    Grava a configuração e todas as atividades atuais numa única transação, de
+    forma análoga à função parse_config(). Falha na gravação preserva
+    integralmente o snapshot anterior.
 
-    parser = ConfigParser()
-    parser.add_section(HEADER)
+    Uma atividade com o nome reservado do formato legado não é mais descartada em
+    silêncio: a gravação falha com erro visível, para que nada seja perdido sem
+    aviso.'''
+    try:
+        snapshot = storage.ConfigSnapshot(
+            toth=toth,
+            inicio=inicio,
+            last_credit_date=_data_do_timestamp(timestamp),
+            acumular=acumular,
+            activities=tuple(
+                storage.ActivitySnapshot(name=a.nome, pts=a.pts, saldo=a.saldo)
+                for a in Atividade.all()),
+        )
+    except ValueError as erro:
+        # Inclui ValidationError do Pydantic, que é subclasse de ValueError.
+        raise ArquivoError('Configuração inválida: %s' % (erro,)) from erro
 
-    # Campos das atividades
-    # pts: porcentagem de prioridade
-    # saldo: quando positivo indica quantas horas precisam ser pagas
-    for a in Atividade.all():
-        if a.nome != HEADER:
-            # atividades com o mesmo nome do cabeçalho são ignoradas em silêncio
-            parser.add_section(a.nome)
-            parser.set(a.nome, 'pts', str(a.pts))
-            parser.set(a.nome, 'saldo', str(a.saldo))
+    try:
+        armazenamento = storage.ensure_storage(DATABASE, _ENTRADA_LEGADA)
+        armazenamento.save_snapshot(snapshot)
+    except storage.StorageError as erro:
+        raise ArquivoError(MSG_CORROMPIDO) from erro
 
-    # Seção HEADER
-    # disponivel: base para calcular as prestações de cada atividade
-    # inicio: dia da semana em que as horas são creditadas
-    # timestamp: fim da última execução do programa
-    parser.set(HEADER, 'disponivel', str(toth))
-    parser.set(HEADER, 'inicio', str(inicio))
-    parser.set(HEADER, 'timestamp', str(timestamp))
-    parser.set(HEADER, 'acumular', str(acumular))
 
-    cfg = codecs.open(CONFIG, 'w', ENCODING)
-    parser.write(cfg)
+def _data_do_timestamp(timestamp):
+    '''Normaliza o `timestamp` público para a fronteira do armazenamento.
+
+    O formato antigo usava `0` para "nenhum crédito ainda" e aceitava tanto
+    `date` quanto `datetime`; o banco guarda uma data anulável. A conversão é
+    desta fronteira, não do armazenamento, que valida em modo estrito.'''
+    if isinstance(timestamp, datetime.datetime):
+        return timestamp.date()
+    if isinstance(timestamp, datetime.date):
+        return timestamp
+    if not timestamp:
+        return None
+
+    raise ArquivoError('Data de último crédito inválida: %r' % (timestamp,))
 
 
 def creditar_tudo(toth, inicio, timestamp, acumular, hoje=None):

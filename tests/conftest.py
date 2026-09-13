@@ -8,6 +8,49 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
 
 
+def _arquivos_do_perfil():
+    '''Nomes `.d10r*` que existem no perfil real do usuário.
+
+    Neste Python no Windows, `os.path.expanduser` consulta apenas
+    `USERPROFILE`; é esse diretório, e não `HOME`, que precisa ficar intocado.'''
+    lar = os.path.expanduser('~')
+    try:
+        return {nome for nome in os.listdir(lar) if nome.startswith('.d10r')}
+    except OSError:
+        return set()
+
+
+@pytest.fixture(scope='session', autouse=True)
+def perfil_real_intocado():
+    '''Falha a sessão se algum teste criar `.d10r*` no perfil real.
+
+    Todo teste precisa injetar os dois caminhos (banco e entrada legada); esta
+    rede de segurança pega qualquer caminho absoluto residual que ignore a
+    injeção, inclusive em testes que esperam exceção.'''
+    antes = _arquivos_do_perfil()
+    yield
+    novos = _arquivos_do_perfil() - antes
+    assert not novos, ('a suíte escreveu no perfil real: %s'
+                       % (sorted(novos),))
+
+
+@pytest.fixture
+def perfil(tmp_path, monkeypatch):
+    '''Perfil temporário com os dois caminhos de persistência injetados.
+
+    Nenhum teste pode endereçar o perfil real: banco e entrada legada são
+    sempre substituídos, e ambos começam inexistentes.'''
+    import types
+
+    import data
+
+    banco = tmp_path / '.d10r.sqlite3'
+    ini = tmp_path / '.d10r'
+    monkeypatch.setattr(data, 'DATABASE', str(banco))
+    monkeypatch.setattr(data, '_ENTRADA_LEGADA', str(ini))
+    return types.SimpleNamespace(dir=tmp_path, banco=banco, ini=ini)
+
+
 @pytest.fixture(scope='session')
 def qapp():
     '''Instância única de QApplication para os testes de interface.'''
