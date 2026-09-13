@@ -118,8 +118,13 @@ Este runbook descreve as ações que devem ser executadas pelo responsável huma
 
 ## Registro da execução
 
-- Responsável: André Simões
-- Data: 12/09/2026
-- Pull request: _a preencher_
-- Commit integrado: _a preencher_
-- Observações: _a preencher_
+- Responsável: André Simões (execução delegada ao agente Sol Senior nesta sessão)
+- Data: 13/09/2026
+- Pull request: https://github.com/alsimoes/d10r/pull/3
+- Commit integrado: c1fd7e1 (merge de #3; conteúdo validado em b4880c7)
+- Observações: 33/33 testes headless em Python 3.12.10; revalidação independente da Terra
+  Pleno e revisão final do Sol Senior aprovadas; nenhuma divergência bloqueante — o conflito
+  de merge foi resolvido pela remediação (b4880c7) e os avisos de whitespace em
+  docs/d10r-correcoes.patch são herdados de 0d421fc, isentos por arbitragem registrada no
+  épico; issue #1 atualizada sem fechamento (remoção do EasyGUI segue como trabalho futuro);
+  branches preservadas; rollback: não necessário.
