@@ -148,6 +148,47 @@ def test_main_nao_insiste_quando_a_configuracao_nao_conclui(monkeypatch):
     assert tentativas == [True]
 
 
+def test_main_integrado_cria_o_banco_e_conclui_a_primeira_configuracao(perfil,
+                                                                      monkeypatch):
+    # Integração real entre parse_config e main, num perfil temporário: nenhuma
+    # das duas pontas é falsa, só o questionário e os diálogos.
+    def init_falso():
+        data.Atividade(nome='A1', pts=1.0, saldo=0.0)
+        data.salvar_config(10, 1, 0, True)
+
+    # `notificar` é interceptado de propósito: qualquer diálogo real aqui
+    # significaria que o fluxo caiu no caminho de erro, e o teste precisa
+    # reprovar em vez de abrir uma janela.
+    avisos = []
+    monkeypatch.setattr(d10r.gui, 'notificar', lambda msg: avisos.append(msg))
+    monkeypatch.setattr(d10r, 'init', init_falso)
+    monkeypatch.setattr(d10r, 'escolher_ativ', lambda: None)
+    monkeypatch.setattr(data, 'creditar_tudo', lambda *args, **kwargs: False)
+
+    d10r.main()
+
+    assert avisos == []
+    assert perfil.banco.exists()
+    assert not perfil.ini.exists()
+    assert [a.nome for a in data.Atividade.all()] == ['A1']
+    assert data.parse_config() == (10, 1, 0, True)
+
+
+def test_main_integrado_com_banco_corrompido_nao_configura(perfil, monkeypatch):
+    perfil.banco.write_bytes(b'isto nao e um banco de dados SQLite' * 8)
+    inicializou = []
+    avisos = []
+    monkeypatch.setattr(d10r, 'init', lambda: inicializou.append(True))
+    monkeypatch.setattr(d10r.gui, 'notificar', lambda msg: avisos.append(msg))
+
+    with pytest.raises(SystemExit):
+        d10r.main()
+
+    # Corrupção nunca vira primeira configuração: nada é sobrescrito.
+    assert inicializou == []
+    assert avisos == ['Arquivo de configuração corrompido.']
+
+
 def test_runtime_nao_expoe_mais_o_menu_de_arquivo():
     assert not hasattr(d10r, 'menu_cfg')
     assert not hasattr(d10r, 'shutil')

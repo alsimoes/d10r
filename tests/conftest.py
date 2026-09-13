@@ -34,6 +34,23 @@ def perfil_real_intocado():
                        % (sorted(novos),))
 
 
+@pytest.fixture
+def perfil(tmp_path, monkeypatch):
+    '''Perfil temporário com os dois caminhos de persistência injetados.
+
+    Nenhum teste pode endereçar o perfil real: banco e entrada legada são
+    sempre substituídos, e ambos começam inexistentes.'''
+    import types
+
+    import data
+
+    banco = tmp_path / '.d10r.sqlite3'
+    ini = tmp_path / '.d10r'
+    monkeypatch.setattr(data, 'DATABASE', str(banco))
+    monkeypatch.setattr(data, '_ENTRADA_LEGADA', str(ini))
+    return types.SimpleNamespace(dir=tmp_path, banco=banco, ini=ini)
+
+
 @pytest.fixture(scope='session')
 def qapp():
     '''Instância única de QApplication para os testes de interface.'''

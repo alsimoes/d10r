@@ -3,7 +3,8 @@ import pytest
 import datetime
 import os
 import re
-import types
+import subprocess
+import sys
 
 import data
 import storage
@@ -14,19 +15,6 @@ from data import (ArquivoError, Atividade, ConfiguracaoAusente, salvar_config,
 @pytest.fixture(autouse=True)
 def clear_atividades():
     Atividade.clear()
-
-
-@pytest.fixture
-def perfil(tmp_path, monkeypatch):
-    '''Perfil temporário com os dois caminhos injetados.
-
-    Nenhum teste pode endereçar o perfil real: banco e entrada legada são
-    sempre substituídos, e ambos começam inexistentes.'''
-    banco = tmp_path / '.d10r.sqlite3'
-    ini = tmp_path / '.d10r'
-    monkeypatch.setattr(data, 'DATABASE', str(banco))
-    monkeypatch.setattr(data, '_ENTRADA_LEGADA', str(ini))
-    return types.SimpleNamespace(dir=tmp_path, banco=banco, ini=ini)
 
 
 def escrever_ini(caminho, corpo):
@@ -302,6 +290,40 @@ def test_aridades_publicas_permanecem_inalteradas():
            '(toth, inicio, timestamp, acumular)'
     assert str(inspect.signature(creditar_tudo)) == \
            '(toth, inicio, timestamp, acumular, hoje=None)'
+
+
+def test_runtime_respeita_o_perfil_redirecionado_sem_injecao(tmp_path):
+    # Sem monkeypatch de caminho nenhum: só o perfil redirecionado. Pega qualquer
+    # caminho absoluto residual que ignore a injeção e vá direto ao `~` real.
+    # Precisa de subprocesso porque os caminhos são resolvidos no import.
+    raiz = os.path.dirname(os.path.abspath(data.__file__))
+    lar = tmp_path / 'lar'
+    lar.mkdir()
+
+    ambiente = dict(os.environ)
+    ambiente['USERPROFILE'] = str(lar)
+    ambiente['HOME'] = str(lar)
+    for chave in ('HOMEDRIVE', 'HOMEPATH'):
+        ambiente.pop(chave, None)
+
+    codigo = ('import sys\n'
+              'sys.path.insert(0, %r)\n'
+              'import data\n'
+              'try:\n'
+              '    data.parse_config()\n'
+              'except data.ConfiguracaoAusente:\n'
+              '    pass\n'
+              'print(data.DATABASE)\n' % raiz)
+    resultado = subprocess.run([sys.executable, '-B', '-c', codigo],
+                               cwd=str(tmp_path), env=ambiente,
+                               capture_output=True, text=True)
+
+    assert resultado.returncode == 0, resultado.stderr
+    # `expanduser` preserva a barra do padrão, então a comparação é normalizada.
+    assert os.path.normpath(resultado.stdout.strip()) == \
+           os.path.normpath(str(lar / '.d10r.sqlite3'))
+    # O banco foi criado no perfil redirecionado, e nada mais foi criado lá.
+    assert [caminho.name for caminho in lar.iterdir()] == ['.d10r.sqlite3']
 
 
 def test_nenhum_caminho_de_runtime_usa_ini_como_fallback():
