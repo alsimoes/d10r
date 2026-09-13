@@ -9,6 +9,7 @@ Este runbook descreve as ações que devem ser executadas pelo responsável huma
 - Nenhuma operação remota ou destrutiva foi executada pelos agentes.
 - O responsável humano confirmou que o único destino válido é o fork `alsimoes/d10r`.
 - O remoto `upstream` (`ygormutti/d10r`) é somente referência histórica e nunca deve receber push, PR ou merge.
+- Permissões de operação por agente: Luna e Terra podem criar commits locais; Sol pode criar commits e também executar push de releases e merges.
 
 ## Passo a passo
 
@@ -110,6 +111,7 @@ Este runbook descreve as ações que devem ser executadas pelo responsável huma
 
 - Não incluir o modo acumulativo ou SQLite nesta integração.
 - Não fazer push, merge, fechar issues ou excluir branches antes de confirmar o destino e a revisão humana.
+- Luna Developer e Terra Pleno não executam push/merge/release; Sol Senior é o único agente autorizado para push de releases e merges.
 - O único repositório autorizado é `alsimoes/d10r`; `ygormutti/d10r` nunca recebe push, PR, merge ou issue.
 - O remoto `upstream` deve ser tratado como somente leitura; comandos de escrita devem usar exclusivamente `origin`.
 - Não usar comandos destrutivos sem verificar o alvo exato e a possibilidade de recuperação.
