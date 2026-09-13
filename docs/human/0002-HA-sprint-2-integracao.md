@@ -107,12 +107,19 @@ o modo acumulativo, a interface PySide6 pura e o CI do Sprint 2 no fork `alsimoe
 
 ## Registro da execução
 
-- Responsável: pendente
-- Data: pendente
-- Pull request: pendente
-- Head validado: pendente
-- Commit integrado: pendente
-- CI: pendente
-- Issue #1: pendente
+- Responsável: André Simões (execução delegada ao agente Sol Senior)
+- Data: 13/09/2026
+- Pull request: https://github.com/alsimoes/d10r/pull/5
+- Head validado: `60c39b791a578f734ec38a0e40133c04c32c822e`
+- Commit integrado: `75fb13b2692ee057c1ff8838efbfe3b379032008`
+- CI: push da branch, pull request e pós-merge aprovados —
+  https://github.com/alsimoes/d10r/actions/runs/34740330673,
+  https://github.com/alsimoes/d10r/actions/runs/34740375113 e
+  https://github.com/alsimoes/d10r/actions/runs/34740419836
+- Issue #1: fechada automaticamente pelo merge — https://github.com/alsimoes/d10r/issues/1
 - Issue #4: aberta — https://github.com/alsimoes/d10r/issues/4
-- Ocorrências e rollback: pendente
+- Ocorrências e rollback: o primeiro CI do head final sinalizou actions baseadas em Node.js
+  20; `checkout` e `setup-python` foram atualizadas para `v7` no commit `60c39b7` e as
+  execuções seguintes terminaram sem anotações. O GitHub removeu automaticamente a branch
+  remota `feat/sprint-2` após o merge; a branch local foi preservada. Rollback não foi
+  necessário.
