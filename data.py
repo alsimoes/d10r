@@ -87,9 +87,9 @@ def parse_config():
     try:
         with codecs.open(CONFIG, 'r', ENCODING) as config_file:
             parser.read_file(config_file)
-    except (OSError, UnicodeError):
+    except OSError:
         raise ArquivoError('Nenhum arquivo de configuração encontrado.')
-    except (ConfigParserError, ValueError):
+    except (UnicodeError, ConfigParserError, ValueError):
         raise ArquivoError('Arquivo de configuração corrompido.')
 
     try:

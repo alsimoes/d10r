@@ -63,6 +63,13 @@ def test_parse_config_arquivo_ausente_ou_malformado(tmp_path, monkeypatch, conte
     with pytest.raises(ArquivoError):
         parse_config()
 
+def test_parse_config_encoding_invalido_e_corrompido(tmp_path, monkeypatch):
+    config = tmp_path / 'config.cfg'
+    monkeypatch.setattr('data.CONFIG', str(config))
+    config.write_bytes(b'[__header__]\ndisponivel = 20\ninicio = 1\n\xff\xfe')
+    with pytest.raises(ArquivoError, match='corrompido'):
+        parse_config()
+
 def test_parse_config_secao_malformada_nao_deixa_atividades(tmp_path, monkeypatch):
     config = tmp_path / 'config.cfg'
     monkeypatch.setattr('data.CONFIG', str(config))
